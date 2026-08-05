@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>H3 Video Gen</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="bg"></div>
+  <header class="top">
+    <div class="brand">
+      <span class="mark">H3</span>
+      <div>
+        <h1>Video Gen</h1>
+        <p class="sub">Gemini Director + Harsh Critic · MiniMax H3 · local</p>
+      </div>
+    </div>
+    <div class="health" id="health">checking…</div>
+  </header>
+
+  <main class="layout">
+    <section class="panel create">
+      <h2>Create</h2>
+      <label class="field">
+        <span>Story / concept prompt</span>
+        <textarea id="prompt" rows="5" placeholder="e.g. A Himalayan monk discovers a glowing seed that grows into a city overnight…"></textarea>
+      </label>
+      <label class="field">
+        <span>Visual style <em>(separate from story)</em></span>
+        <textarea id="style" rows="3">Premium 3D animated fairy-tale, soft stylized characters, cinematic golden-hour lighting, coherent single art direction, YouTube-polished, no photoreal live-action mix, no on-screen text</textarea>
+      </label>
+      <div class="row">
+        <label class="field grow">
+          <span>Target duration (sec)</span>
+          <input type="number" id="duration" value="60" min="15" max="180" step="5" />
+        </label>
+        <label class="field grow">
+          <span>Max shots</span>
+          <input type="number" id="max_shots" value="12" min="2" max="24" />
+        </label>
+        <label class="field grow">
+          <span>Max retakes / shot</span>
+          <input type="number" id="max_retakes" value="2" min="0" max="4" />
+        </label>
+      </div>
+      <div class="row actions">
+        <button type="button" class="btn ghost" id="btn-plan">Director plan only</button>
+        <button type="button" class="btn primary" id="btn-run">Generate full video</button>
+        <button type="button" class="btn danger" id="btn-stop" disabled title="Stop current generation">Stop</button>
+      </div>
+      <p class="hint">Voice/narration is disabled. Critic threshold: {{ critic_threshold }}/10. ComfyUI: {{ comfy_url }}. Incomplete projects show <strong>Resume</strong>. Generate/Resume auto-starts ComfyUI &amp; Ollama when configured.</p>
+    </section>
+
+    <section class="panel side">
+      <h2>Live log</h2>
+      <pre id="log" class="log">Idle. Plan or generate to begin.</pre>
+      <div id="result" class="result hidden"></div>
+    </section>
+
+    <section class="panel wide">
+      <div class="row between">
+        <h2>Projects</h2>
+        <button type="button" class="btn ghost sm" id="btn-refresh">Refresh</button>
+      </div>
+      <div id="projects" class="projects">Loading…</div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Director plan preview</h2>
+      <pre id="plan" class="plan">No plan yet.</pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js?v=5"></script>
+</body>
+</html>
