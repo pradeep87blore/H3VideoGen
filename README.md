@@ -9,8 +9,13 @@ Local pipeline that uses:
 
 ## Quick start
 
+**Windows (recommended):** double-click `launch.bat`  
+It creates `.venv`, installs deps if needed, ensures `.env` exists, starts the server, and opens **http://127.0.0.1:7860**.
+
+Or manually:
+
 1. Copy `.env.example` → `.env` and set `GEMINI_API_KEY`.
-2. Ensure ComfyUI is running with H3 models (default `http://127.0.0.1:8188`).
+2. Ensure ComfyUI is available with H3 models (default `http://127.0.0.1:8188`; Generate/Resume can auto-start it).
 3. Create a venv and install deps:
 
 ```powershell
@@ -30,13 +35,19 @@ python -m venv .venv
 - **Generate full video** — plan → H3 each shot → Gemini critic (+ retakes) → FFmpeg master
 - **Resume** on a project card — continue from unfinished shots (keeps character board + passed clips). Auto-starts **ComfyUI** / **Ollama** if down.
 
-## CLI
+## CLI / automation
+
+Same fields as the UI (`prompt`, `style`, `target_duration_sec`, `max_shots`, `max_retakes`, …). Use **CLI flags**, a **JSON job file**, or the web UI — flags override JSON when both are set. `POST /api/generate` accepts the same JSON body.
 
 ```powershell
 .\.venv\Scripts\python run.py plan --prompt "A fox and a crow" --style "watercolor animation"
 .\.venv\Scripts\python run.py generate --prompt "..." --style "..." --duration 60 --shots 10
+.\.venv\Scripts\python run.py generate --json jobs\tiny_bunny_origami.json
+.\.venv\Scripts\python run.py generate -j jobs\my_job.json --retakes 1
 .\.venv\Scripts\python run.py resume 20260804_181821_3d341b75
 ```
+
+**ComfyUI note:** Generate needs a Comfy install with native MiniMax H3 nodes (`MiniMaxH3ImageToVideo`, `MiniMaxH3ReferenceToVideo`). If something else is listening on port 8188 without those nodes, set `COMFYUI_ROOT` (default `E:/AI/ComfyUI`) and leave `COMFY_REPLACE_NON_H3=true` so the app can free the port and start the correct install.
 
 ## Outputs
 
@@ -48,7 +59,8 @@ python -m venv .venv
 - `reviews/` — critic JSON per take  
 - `shots/` — accepted clips  
 - `master/` — YouTube-oriented concat  
-- `state.json` — full run state + logs  
+- `state.json` — full run state (including log array)  
+- `run.log` — plain-text live log (same content as the UI log window)  
 
 ## Notes
 
@@ -56,7 +68,7 @@ python -m venv .venv
 - LLM fallback: **Gemini** (model cascade) → **local OpenAI-compatible** (Ollama/LM Studio) → **offline** template director + frame heuristic critic. Configure via `LLM_FALLBACK_ORDER`, `LOCAL_LLM_*`, `GEMINI_MODEL_FALLBACKS`.
 - **Character consistency (R2V):** default `H3_MODE=r2v` uses MiniMax H3 reference-to-video (`H3_UNET_R2V`). For each main cast member the pipeline builds a **multi-view character sheet** (front, 3/4, side, face close-up, action — up to 5 for lead, 2 for support; configurable). Stills come from Gemini image models, optional H3 studio turnaround, manual drop-ins (`character_board/C01_front_full.png`, …), or bootstrap/enrich from accepted takes. Per shot the director/camera picks a relevant subset of views (H3 hard cap: **≤9** images; one slot often held for previous-shot continuity). Set `H3_MODE=t2v` for text-only.
 - **Resume:** unfinished projects (cancelled / failed / partial) show **Resume** in the UI. Passed shots are skipped; character sheets and plan are reused. CLI: `run.py resume <project_id>`.
-- **Auto-start services:** on Generate/Resume, if ComfyUI is down and `AUTO_START_COMFY=true`, the app launches `COMFYUI_ROOT` (`E:/AI/ComfyUI` by default) and waits up to `COMFY_START_TIMEOUT_SEC`. Ollama is started similarly when `AUTO_START_OLLAMA=true` and `LOCAL_LLM_*` points at port 11434. Manual: `POST /api/services/ensure`.
+- **Auto-start services:** on Generate/Resume, if ComfyUI is down and `AUTO_START_COMFY=true`, the app launches `COMFYUI_ROOT` (`E:/AI/ComfyUI` by default) and waits up to `ESSENTIALS_WAIT_SEC` / `COMFY_START_TIMEOUT_SEC` (default **5 minutes**). If still down, generation **stops with a clear error** (no multi-hour hang). The UI shows a red banner + browser alert when ComfyUI, FFmpeg, or both Gemini/Ollama are missing. Ollama starts when `AUTO_START_OLLAMA=true`. Manual: `POST /api/services/ensure` or **Start services** on the banner.
 - Voice: `ENABLE_VOICE=false` by default; `app/agents/voice.py` is a stub for ElevenLabs later.
 - One generation job at a time (VRAM safety).
 - Logs restore after browser refresh (from `state.json` + active job poll).

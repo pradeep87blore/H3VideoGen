@@ -6,6 +6,11 @@ const projectsEl = $("projects");
 const healthEl = $("health");
 
 const STORAGE_KEY = "h3vg_job";
+const HEARTBEAT_MS = 10000;
+let essentialsDismissedKey = "";
+let essentialsAlertedKey = "";
+let lastHeartbeatAt = null;
+let heartbeatTimer = null;
 
 function appendLog(line) {
   if (logEl.textContent === "Idle. Plan or generate to begin.") logEl.textContent = "";
@@ -64,6 +69,183 @@ function clearSession() {
   }
 }
 
+function renderCast(characters, projectId) {
+  const el = $("cast-list");
+  if (!el) return;
+  const list = Array.isArray(characters) ? characters : [];
+  if (!list.length) {
+    el.innerHTML =
+      '<p class="hint cast-empty">Characters appear here after the director plans the cast.</p>';
+    return;
+  }
+  el.innerHTML = list
+    .map((c, i) => {
+      const id = c.id || `C${String(i + 1).padStart(2, "0")}`;
+      const name = c.name || id;
+      const look = c.look || "";
+      const sheets = c.sheet_count != null ? c.sheet_count : null;
+      const hasImg = !!(c.image_path && projectId && !String(projectId).startsWith("pending_"));
+      const initial = escapeHtml((name || "?").slice(0, 1).toUpperCase());
+      let avatar = `<div class="cast-avatar" aria-hidden="true">${initial}</div>`;
+      if (hasImg) {
+        const base = String(c.image_path).replace(/\\/g, "/").split("/").pop();
+        if (base) {
+          const src = `/api/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(
+            "character_board/" + base
+          )}`;
+          avatar = `<div class="cast-avatar"><img src="${src}" alt="" loading="lazy" /></div>`;
+        }
+      }
+      return `<article class="cast-card">
+        ${avatar}
+        <div class="cast-meta">
+          <div class="cast-id">${escapeHtml(id)}</div>
+          <p class="cast-name">${escapeHtml(name)}</p>
+          ${look ? `<p class="cast-look">${escapeHtml(look)}</p>` : ""}
+          ${
+            sheets != null
+              ? `<p class="cast-sheet">${sheets} sheet view${sheets === 1 ? "" : "s"}</p>`
+              : ""
+          }
+        </div>
+      </article>`;
+    })
+    .join("");
+}
+
+function charactersFromPlan(plan) {
+  if (!plan || !Array.isArray(plan.characters)) return [];
+  return plan.characters.map((c) => ({
+    id: c.id,
+    name: c.name,
+    look: c.look || "",
+    image_path: c.image_path,
+    sheet_count: Array.isArray(c.sheet)
+      ? c.sheet.filter((p) => p && p.image_path).length
+      : undefined,
+  }));
+}
+
+function essentialsSignature(ess) {
+  if (!ess) return "";
+  return [...(ess.blocking || []), ...(ess.warnings || [])].join("|");
+}
+
+function showEssentialsBanner(ess, { force = false } = {}) {
+  const banner = $("essentials-banner");
+  const body = $("essentials-body");
+  const title = $("essentials-title");
+  if (!banner || !body || !title) return;
+
+  const blocking = ess?.blocking || [];
+  const warnings = ess?.warnings || [];
+  if (!blocking.length && !warnings.length) {
+    banner.classList.add("hidden");
+    essentialsDismissedKey = "";
+    return;
+  }
+
+  const sig = essentialsSignature(ess);
+  if (!force && sig && sig === essentialsDismissedKey) {
+    banner.classList.add("hidden");
+    return;
+  }
+
+  const waitMin = Math.max(1, Math.round((ess.wait_limit_sec || 300) / 60));
+  title.textContent = blocking.length
+    ? `Prerequisites missing — will fail within ~${waitMin} min if not fixed`
+    : "Prerequisites: soft warnings";
+  body.textContent =
+    ess.prompt ||
+    [...blocking.map((b) => "• " + b), ...warnings.map((w) => "• " + w)].join("\n");
+  banner.classList.toggle("warn", !blocking.length);
+  banner.classList.remove("hidden");
+
+  if (blocking.length && sig !== essentialsAlertedKey) {
+    essentialsAlertedKey = sig;
+    const msg =
+      "H3 Video Gen needs tools that are not ready:\n\n" +
+      blocking.map((b) => "• " + b).join("\n") +
+      `\n\nAuto-start waits up to ~${waitMin} minutes, then stops with an error in the log.\n` +
+      "Use “Start services” on the banner, or start ComfyUI / Ollama manually.";
+    try {
+      window.alert(msg);
+    } catch (_) {
+      /* ignore if blocked */
+    }
+  }
+}
+
+function formatAgo(checkedAt) {
+  if (!checkedAt) return "—";
+  const t = Date.parse(checkedAt);
+  if (Number.isNaN(t)) return "just now";
+  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (sec < 2) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  return `${Math.floor(sec / 60)}m ago`;
+}
+
+function shortToolName(name) {
+  const n = String(name || "");
+  if (/comfy/i.test(n)) return "ComfyUI";
+  if (/ffmpeg/i.test(n)) return "FFmpeg";
+  if (/gemini/i.test(n)) return "Gemini";
+  if (/ollama|local llm/i.test(n)) return "Ollama";
+  return n.split("(")[0].trim() || n;
+}
+
+function renderHeartbeat(payload) {
+  const toolsEl = $("heartbeat-tools");
+  const pulseEl = $("heartbeat-pulse");
+  const agoEl = $("heartbeat-ago");
+  if (!toolsEl) return;
+
+  const hb = payload?.heartbeat || {};
+  const tools = Array.isArray(hb.tools) && hb.tools.length
+    ? hb.tools
+    : payload?.essentials?.services || [];
+  lastHeartbeatAt = hb.checked_at || new Date().toISOString();
+  if (agoEl) agoEl.textContent = `♥ ${formatAgo(lastHeartbeatAt)} · 10s`;
+
+  if (!tools.length) {
+    toolsEl.innerHTML = '<span class="tool-chip muted">No tool status</span>';
+    if (pulseEl) pulseEl.className = "heartbeat-pulse down";
+    return;
+  }
+
+  const anyRequiredDown = tools.some((t) => t.required && !t.ok);
+  const anyWarn = tools.some((t) => !t.required && !t.ok);
+  if (pulseEl) {
+    pulseEl.className =
+      "heartbeat-pulse " + (anyRequiredDown ? "down" : anyWarn ? "warn" : "live");
+  }
+
+  toolsEl.innerHTML = tools
+    .map((t) => {
+      const req = !!t.required;
+      const ok = !!t.ok;
+      const cls = ok ? "ok" : req ? "down" : "warn";
+      const status = ok ? "up" : req ? "down" : "warn";
+      const detail = t.detail || t.fix || "";
+      const title = [
+        t.name,
+        status,
+        req ? "required" : "optional",
+        detail,
+        t.fix && !ok ? t.fix : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return `<span class="tool-chip ${cls}" title="${escapeHtml(title)}">
+        <span class="dot"></span>
+        <span class="tool-name">${escapeHtml(shortToolName(t.name))}</span>
+        <span class="tool-detail">${escapeHtml(status)}${detail ? " · " + escapeHtml(String(detail).slice(0, 40)) : ""}</span>
+      </span>`;
+    })
+    .join("");
+}
+
 async function refreshHealth() {
   try {
     const r = await fetch("/api/health");
@@ -73,11 +255,67 @@ async function refreshHealth() {
     bits.push(j.comfy_ok ? "ComfyUI ✓" : "ComfyUI ✗");
     bits.push(j.ollama_ok ? "Ollama ✓" : "Ollama ·");
     bits.push(j.voice_enabled ? "Voice on" : "Voice off");
+    if (j.essentials?.ready_for_generate === false) bits.push("Not ready");
+    else if (j.essentials?.ready_for_generate) bits.push("Ready");
     healthEl.textContent = bits.join(" · ");
-    healthEl.className = "health " + (j.comfy_ok ? "ok" : "bad");
+    if (!j.comfy_ok || (j.essentials && !j.essentials.ok)) {
+      healthEl.className = "health bad";
+    } else if (j.essentials?.warnings?.length) {
+      healthEl.className = "health warn";
+    } else {
+      healthEl.className = "health ok";
+    }
+    renderHeartbeat(j);
+    if (j.essentials) showEssentialsBanner(j.essentials);
   } catch (e) {
     healthEl.textContent = "API unreachable";
     healthEl.className = "health bad";
+    const toolsEl = $("heartbeat-tools");
+    const pulseEl = $("heartbeat-pulse");
+    if (toolsEl) {
+      toolsEl.innerHTML =
+        '<span class="tool-chip down"><span class="dot"></span><span class="tool-name">API</span><span class="tool-detail">down</span></span>';
+    }
+    if (pulseEl) pulseEl.className = "heartbeat-pulse down";
+    if ($("heartbeat-ago")) $("heartbeat-ago").textContent = "error · 10s";
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  refreshHealth();
+  heartbeatTimer = setInterval(refreshHealth, HEARTBEAT_MS);
+  // keep "Ns ago" fresh without re-probing tools
+  setInterval(() => {
+    const agoEl = $("heartbeat-ago");
+    if (agoEl && lastHeartbeatAt) {
+      agoEl.textContent = `♥ ${formatAgo(lastHeartbeatAt)} · 10s`;
+    }
+  }, 1000);
+}
+
+async function startEssentialServices() {
+  appendLog("Starting ComfyUI / Ollama if needed (wait up to ~5 min)…");
+  try {
+    const r = await fetch("/api/services/ensure", { method: "POST" });
+    const j = await r.json();
+    (j.log || []).forEach((line) => appendLog(line));
+    if (j.essentials?.prompt) appendLog(j.essentials.prompt.replace(/\n/g, " | "));
+    if (j.ok && j.comfy_ok) {
+      appendLog("Essentials look ready.");
+      essentialsDismissedKey = "";
+      essentialsAlertedKey = "";
+    } else {
+      const wait = j.essentials?.wait_limit_sec || 300;
+      appendLog(
+        `Still missing essentials after auto-start attempt (limit ~${Math.round(wait / 60)} min). ` +
+          (j.essentials?.blocking || []).join(" · ")
+      );
+      if (j.essentials) showEssentialsBanner(j.essentials, { force: true });
+    }
+    await refreshHealth();
+  } catch (e) {
+    appendLog("Start services failed: " + e.message);
   }
 }
 
@@ -172,6 +410,7 @@ async function openProject(id) {
   if (!r.ok) throw new Error("Project not found");
   const j = await r.json();
   planEl.textContent = JSON.stringify(j.plan || j, null, 2);
+  renderCast(charactersFromPlan(j.plan) || j.characters || [], id);
   setLogLines(j.log || []);
   if (!j.log || !j.log.length) {
     logEl.textContent = "No logs stored for this project.";
@@ -216,7 +455,11 @@ $("btn-plan").addEventListener("click", async () => {
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
     planEl.textContent = JSON.stringify(j, null, 2);
+    renderCast(charactersFromPlan(j), null);
     appendLog(`Plan: “${j.title}” — ${j.shots?.length || 0} shots, ~${j.target_duration_sec}s`);
+    if (j.characters?.length) {
+      appendLog(`Cast: ${j.characters.map((c) => c.name || c.id).join(", ")}`);
+    }
   } catch (e) {
     appendLog("Plan failed: " + e.message);
   } finally {
@@ -230,9 +473,29 @@ let watchingId = null;
 $("btn-run").addEventListener("click", async () => {
   const body = formPayload();
   if (!body.prompt) return alert("Enter a story prompt");
+
+  // Preflight: surface essentials before long GPU wait
+  try {
+    const hr = await fetch("/api/health");
+    const hj = await hr.json();
+    if (hj.essentials && !hj.essentials.ready_for_generate) {
+      showEssentialsBanner(hj.essentials, { force: true });
+      const waitMin = Math.max(1, Math.round((hj.essentials.wait_limit_sec || 300) / 60));
+      const okContinue = window.confirm(
+        "Required tools are not ready:\n\n" +
+          (hj.essentials.blocking || []).map((b) => "• " + b).join("\n") +
+          `\n\nGenerate will try auto-start and stop within ~${waitMin} minutes if they stay down.\n\nContinue?`
+      );
+      if (!okContinue) return;
+    }
+  } catch (_) {
+    /* proceed; pipeline will fail clearly */
+  }
+
   setBusy(true);
   resultEl.classList.add("hidden");
   logEl.textContent = "";
+  renderCast([], null);
   appendLog("Starting full pipeline (Director → H3 → Critic → Assemble)…");
   appendLog("Will auto-start ComfyUI / Ollama if they are not running.");
   try {
@@ -324,6 +587,9 @@ function startPolling(preferredId) {
           saveSession({ job_ref: watchingId, watching: true, last_project_id: watchingId });
         }
         setLogLines(job.log || []);
+        if (job.characters?.length) {
+          renderCast(job.characters, job.project_id);
+        }
         if (job.status === "cancelling") {
           $("btn-stop").disabled = true;
         }
@@ -332,11 +598,34 @@ function startPolling(preferredId) {
             const pr = await fetch(`/api/projects/${encodeURIComponent(job.project_id)}`);
             if (pr.ok) {
               const detail = await pr.json();
-              if (detail.plan) planEl.textContent = JSON.stringify(detail.plan, null, 2);
+              if (detail.plan) {
+                planEl.textContent = JSON.stringify(detail.plan, null, 2);
+                renderCast(charactersFromPlan(detail.plan), job.project_id);
+              }
               if (detail.log?.length > (job.log || []).length) setLogLines(detail.log);
             }
           } catch (_) {
             /* keep polled log */
+          }
+        } else if (
+          job.project_id &&
+          !String(job.project_id).startsWith("pending_") &&
+          (!job.characters || !job.characters.length)
+        ) {
+          // Plan may exist on disk before job snapshot includes cast
+          try {
+            const pr = await fetch(`/api/projects/${encodeURIComponent(job.project_id)}`);
+            if (pr.ok) {
+              const detail = await pr.json();
+              if (detail.plan?.characters?.length) {
+                if (planEl.textContent === "No plan yet.") {
+                  planEl.textContent = JSON.stringify(detail.plan, null, 2);
+                }
+                renderCast(charactersFromPlan(detail.plan), job.project_id);
+              }
+            }
+          } catch (_) {
+            /* ignore */
           }
         }
         return;
@@ -430,7 +719,47 @@ async function resumeSession() {
 }
 
 $("btn-refresh").addEventListener("click", refreshProjects);
-refreshHealth();
+$("btn-copy-log")?.addEventListener("click", async () => {
+  const text = (logEl?.textContent || "").trim();
+  const btn = $("btn-copy-log");
+  if (!text) {
+    appendLog("Nothing to copy yet.");
+    return;
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // Fallback for older environments
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    if (btn) {
+      const prev = btn.textContent;
+      btn.textContent = "Copied";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = prev || "Copy log";
+        btn.classList.remove("copied");
+      }, 1500);
+    }
+  } catch (e) {
+    appendLog("Copy failed: " + (e.message || e));
+  }
+});
+$("btn-essentials-dismiss")?.addEventListener("click", () => {
+  const banner = $("essentials-banner");
+  const body = $("essentials-body");
+  essentialsDismissedKey = body?.textContent || "dismissed";
+  banner?.classList.add("hidden");
+});
+$("btn-start-services")?.addEventListener("click", () => startEssentialServices());
+startHeartbeat();
 refreshProjects();
 resumeSession();
-setInterval(refreshHealth, 15000);

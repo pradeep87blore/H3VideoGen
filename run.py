@@ -5,13 +5,86 @@ import argparse
 import json
 import signal
 import sys
+from pathlib import Path
+from typing import Any
 
 import uvicorn
 
 from app.config import get_settings
 from app.job_control import job_control
-from app.models import GenerateRequest
+from app.models import DirectorOnlyRequest, GenerateRequest
 from app.pipeline import ProductionPipeline
+
+
+def _load_json_file(path: str | Path) -> dict[str, Any]:
+    p = Path(path)
+    if not p.is_file():
+        raise SystemExit(f"JSON job file not found: {p}")
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"Invalid JSON in {p}: {e}") from e
+    if not isinstance(data, dict):
+        raise SystemExit(f"JSON job file must be an object/dict: {p}")
+    return data
+
+
+def _merge_job_payload(
+    *,
+    json_path: str | None,
+    prompt: str | None,
+    style: str | None,
+    duration: float | None,
+    shots: int | None,
+    retakes: int | None,
+    no_assemble: bool,
+    seed: int | None = None,
+    h3_mode: str | None = None,
+) -> dict[str, Any]:
+    """Build GenerateRequest kwargs from optional JSON + CLI overrides."""
+    data: dict[str, Any] = {}
+    if json_path:
+        data = _load_json_file(json_path)
+
+    # Accept a few alias keys used in automation docs
+    aliases = {
+        "target_duration": "target_duration_sec",
+        "duration": "target_duration_sec",
+        "duration_sec": "target_duration_sec",
+        "max_retakes_per_shot": "max_retakes",
+        "retakes": "max_retakes",
+        "shots": "max_shots",
+        "max_shot": "max_shots",
+        "story": "prompt",
+        "concept": "prompt",
+        "visual_style": "style",
+    }
+    for src, dst in aliases.items():
+        if src in data and dst not in data:
+            data[dst] = data[src]
+
+    if prompt is not None:
+        data["prompt"] = prompt
+    if style is not None:
+        data["style"] = style
+    if duration is not None:
+        data["target_duration_sec"] = duration
+    if shots is not None:
+        data["max_shots"] = shots
+    if retakes is not None:
+        data["max_retakes"] = retakes
+    if no_assemble:
+        data["auto_assemble"] = False
+    if seed is not None:
+        data["seed_base"] = seed
+    if h3_mode is not None:
+        data["h3_mode"] = h3_mode
+
+    if not str(data.get("prompt") or "").strip():
+        raise SystemExit(
+            "Story prompt is required. Use --prompt, or --json with a \"prompt\" field."
+        )
+    return data
 
 
 def cmd_serve() -> None:
@@ -72,14 +145,18 @@ def cmd_serve() -> None:
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
-    req = GenerateRequest(
+    payload = _merge_job_payload(
+        json_path=args.json,
         prompt=args.prompt,
         style=args.style,
-        target_duration_sec=args.duration,
-        max_shots=args.shots,
-        max_retakes=args.retakes,
-        auto_assemble=not args.no_assemble,
+        duration=args.duration,
+        shots=args.shots,
+        retakes=args.retakes,
+        no_assemble=args.no_assemble,
+        seed=args.seed,
+        h3_mode=args.h3_mode,
     )
+    req = GenerateRequest.model_validate(payload)
 
     def log(msg: str) -> None:
         print(msg, flush=True)
@@ -129,6 +206,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
         auto_assemble=not args.no_assemble,
         seed_base=args.seed,
         redo_failed=not args.skip_failed,
+        h3_mode=args.h3_mode,
     )
     state = ProductionPipeline(control=job_control).resume(args.project_id, req, log=log)
     print(
@@ -145,7 +223,26 @@ def cmd_resume(args: argparse.Namespace) -> int:
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    plan = ProductionPipeline().plan_only(args.prompt, args.style, args.duration, args.shots)
+    payload = _merge_job_payload(
+        json_path=args.json,
+        prompt=args.prompt,
+        style=args.style,
+        duration=args.duration,
+        shots=args.shots,
+        retakes=None,
+        no_assemble=False,
+    )
+    req = DirectorOnlyRequest.model_validate(
+        {
+            "prompt": payload["prompt"],
+            "style": payload.get("style", "Premium 3D animated cinematic short"),
+            "target_duration_sec": payload.get("target_duration_sec", 60.0),
+            "max_shots": payload.get("max_shots", 12),
+        }
+    )
+    plan = ProductionPipeline().plan_only(
+        req.prompt, req.style, req.target_duration_sec, req.max_shots
+    )
     print(plan.model_dump_json(indent=2))
     return 0
 
@@ -157,12 +254,24 @@ def main(argv: list[str] | None = None) -> int:
     p_serve = sub.add_parser("serve", help="Start web UI")
     p_serve.set_defaults(func=lambda a: cmd_serve() or 0)
 
-    p_gen = sub.add_parser("generate", help="Run full pipeline from CLI")
-    p_gen.add_argument("--prompt", required=True)
-    p_gen.add_argument("--style", default="Premium 3D animated cinematic YouTube short")
-    p_gen.add_argument("--duration", type=float, default=60.0)
-    p_gen.add_argument("--shots", type=int, default=12)
-    p_gen.add_argument("--retakes", type=int, default=2)
+    p_gen = sub.add_parser(
+        "generate",
+        help="Run full pipeline from CLI flags and/or a JSON job file",
+    )
+    p_gen.add_argument(
+        "--json",
+        "-j",
+        dest="json",
+        default=None,
+        help="Path to job JSON (prompt, style, target_duration_sec, max_shots, max_retakes, …)",
+    )
+    p_gen.add_argument("--prompt", default=None, help="Story / concept (overrides JSON)")
+    p_gen.add_argument("--style", default=None, help="Visual style (overrides JSON)")
+    p_gen.add_argument("--duration", type=float, default=None, help="Target duration seconds")
+    p_gen.add_argument("--shots", type=int, default=None, help="Max shots")
+    p_gen.add_argument("--retakes", type=int, default=None, help="Max retakes per shot")
+    p_gen.add_argument("--seed", type=int, default=None, help="Seed base")
+    p_gen.add_argument("--h3-mode", dest="h3_mode", default=None, choices=["r2v", "t2v", "auto"])
     p_gen.add_argument("--no-assemble", action="store_true")
     p_gen.set_defaults(func=cmd_generate)
 
@@ -170,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     p_resume.add_argument("project_id", help="outputs/<project_id>")
     p_resume.add_argument("--retakes", type=int, default=2)
     p_resume.add_argument("--seed", type=int, default=42)
+    p_resume.add_argument("--h3-mode", dest="h3_mode", default=None, choices=["r2v", "t2v", "auto"])
     p_resume.add_argument("--no-assemble", action="store_true")
     p_resume.add_argument(
         "--skip-failed",
@@ -179,10 +289,11 @@ def main(argv: list[str] | None = None) -> int:
     p_resume.set_defaults(func=cmd_resume)
 
     p_plan = sub.add_parser("plan", help="Director plan only (no GPU render)")
-    p_plan.add_argument("--prompt", required=True)
-    p_plan.add_argument("--style", default="Premium 3D animated cinematic YouTube short")
-    p_plan.add_argument("--duration", type=float, default=60.0)
-    p_plan.add_argument("--shots", type=int, default=12)
+    p_plan.add_argument("--json", "-j", dest="json", default=None, help="Path to job JSON")
+    p_plan.add_argument("--prompt", default=None)
+    p_plan.add_argument("--style", default=None)
+    p_plan.add_argument("--duration", type=float, default=None)
+    p_plan.add_argument("--shots", type=int, default=None)
     p_plan.set_defaults(func=cmd_plan)
 
     args = parser.parse_args(argv)

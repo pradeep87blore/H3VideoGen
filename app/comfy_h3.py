@@ -12,6 +12,16 @@ import httpx
 from .config import Settings
 from .job_control import CancelledError, JobControl
 
+# Native MiniMax H3 nodes (ComfyUI ≥0.30.0 / comfy_extras.nodes_minimax_h3)
+REQUIRED_H3_NODES = (
+    "MiniMaxH3ImageToVideo",
+    "MiniMaxH3ReferenceToVideo",
+)
+# Optional but expected on the same install
+OPTIONAL_H3_NODES = (
+    "EmptyMiniMaxH3LatentAV",
+)
+
 
 class ComfyError(RuntimeError):
     pass
@@ -28,6 +38,64 @@ class ComfyH3Client:
             r = client.get(f"{self.base}/system_stats")
             r.raise_for_status()
             return r.json()
+
+    def object_info(self, timeout: float = 60.0) -> dict[str, Any]:
+        with httpx.Client(timeout=timeout) as client:
+            r = client.get(f"{self.base}/object_info")
+            r.raise_for_status()
+            return r.json()
+
+    def h3_capability(self, timeout: float = 60.0) -> dict[str, Any]:
+        """
+        Whether this Comfy instance can run MiniMax H3 graphs.
+        A different app on the same port often answers /system_stats but lacks H3 nodes.
+        """
+        try:
+            oi = self.object_info(timeout=timeout)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "reachable": False,
+                "missing_nodes": list(REQUIRED_H3_NODES),
+                "present_nodes": [],
+                "has_minimax_clip": False,
+                "error": str(exc),
+            }
+
+        present = [n for n in REQUIRED_H3_NODES if n in oi]
+        missing = [n for n in REQUIRED_H3_NODES if n not in oi]
+        optional_present = [n for n in OPTIONAL_H3_NODES if n in oi]
+        has_minimax_clip = False
+        clip = oi.get("CLIPLoader") or {}
+        try:
+            types = (clip.get("input") or {}).get("required", {}).get("type")
+            # shape: (["stable_diffusion", ...],) or list
+            opts: list[str] = []
+            if isinstance(types, (list, tuple)) and types:
+                opts = list(types[0]) if isinstance(types[0], (list, tuple)) else list(types)
+            has_minimax_clip = "minimax" in opts
+        except Exception:
+            has_minimax_clip = False
+
+        ok = not missing
+        return {
+            "ok": ok,
+            "reachable": True,
+            "missing_nodes": missing,
+            "present_nodes": present,
+            "optional_nodes": optional_present,
+            "has_minimax_clip": has_minimax_clip,
+            "node_count": len(oi),
+            "hint": (
+                None
+                if ok
+                else (
+                    "This ComfyUI process is missing MiniMax H3 native nodes. "
+                    "Point COMFYUI_ROOT at a Comfy ≥0.30 install with nodes_minimax_h3 "
+                    "(default E:/AI/ComfyUI) and free the port or set COMFY_REPLACE_NON_H3=true."
+                )
+            ),
+        }
 
     def interrupt(self) -> None:
         """Ask ComfyUI to stop the current graph and clear the queue."""
@@ -333,40 +401,120 @@ class ComfyH3Client:
             self.control.check()
         return pid
 
+    def _output_search_roots(self) -> list[Path]:
+        """Possible folders where SaveVideo writes (depends on Comfy extra paths)."""
+        s = self.settings
+        roots: list[Path] = []
+        for r in (
+            Path(s.comfy_output_root),
+            Path(s.comfyui_root) / "output",
+            Path(s.ai_root) / "Outputs",
+            Path(s.ai_root) / "ComfyUI" / "output",
+        ):
+            if r not in roots:
+                roots.append(r)
+        return roots
+
+    def download_output_media(
+        self,
+        filename: str,
+        *,
+        subfolder: str = "",
+        file_type: str = "output",
+        dest: Path | None = None,
+    ) -> Path:
+        """Fetch a Comfy output via /view (reliable when local paths differ)."""
+        params = {
+            "filename": filename,
+            "subfolder": subfolder.replace("\\", "/").strip("/"),
+            "type": file_type,
+        }
+        with httpx.Client(timeout=120.0) as client:
+            r = client.get(f"{self.base}/view", params=params)
+            if r.status_code >= 400:
+                raise ComfyError(
+                    f"Comfy /view failed {r.status_code} for {filename} sub={subfolder}: {r.text[:500]}"
+                )
+            data = r.content
+        if not data or len(data) < 64:
+            raise ComfyError(f"Empty Comfy view payload for {filename}")
+        if dest is None:
+            dest = Path(self.settings.output_root) / "_comfy_fetch" / filename
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        return dest
+
     def resolve_output_path(self, history_item: dict[str, Any]) -> Path:
         outputs = history_item.get("outputs") or {}
         filename = None
         subfolder = "video"
+        file_type = "output"
         for node_out in outputs.values():
             for entry in (node_out.get("images") or []) + (node_out.get("gifs") or []):
                 filename = entry.get("filename")
                 subfolder = entry.get("subfolder") or "video"
+                file_type = entry.get("type") or "output"
                 if filename:
                     break
             if filename:
                 break
-        root = Path(self.settings.comfy_output_root)
+        if not filename:
+            raise ComfyError("Comfy history has no video filename in outputs")
+
+        # Normalize Windows-style subfolders from Comfy history
+        sub = str(subfolder).replace("\\", "/").strip("/")
+
         candidates: list[Path] = []
-        if filename:
+        for root in self._output_search_roots():
             candidates.extend(
                 [
-                    root / subfolder / filename,
-                    root / "video" / subfolder / filename,
-                    root / "video" / filename,
+                    root / sub / filename,
+                    root / "video" / sub / filename,
+                    root / filename,
                 ]
             )
-            video_root = root / "video"
-            if video_root.exists():
-                candidates.extend(video_root.rglob(filename))
+            # Also try each path segment as relative under root
+            if sub:
+                parts = Path(sub)
+                candidates.append(root / parts / filename)
+
+        seen: set[str] = set()
         for c in candidates:
-            if c.exists() and c.is_file():
+            key = str(c.resolve()) if c.exists() else str(c)
+            if key in seen:
+                continue
+            seen.add(key)
+            if c.exists() and c.is_file() and c.stat().st_size > 64:
                 return c
-        video_dir = root / "video"
-        if video_dir.exists():
-            mp4s = sorted(video_dir.rglob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if mp4s:
-                return mp4s[0]
-        raise ComfyError("Could not locate output mp4 in Comfy history/outputs")
+
+        # Rglob only same basename under known roots, prefer newest
+        matches: list[Path] = []
+        for root in self._output_search_roots():
+            if not root.exists():
+                continue
+            try:
+                matches.extend(p for p in root.rglob(filename) if p.is_file())
+            except Exception:
+                continue
+        if matches:
+            matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            return matches[0]
+
+        # Last resort: pull bytes from Comfy HTTP API
+        try:
+            return self.download_output_media(
+                filename,
+                subfolder=sub,
+                file_type=file_type,
+                dest=Path(self.settings.output_root) / "_comfy_fetch" / sub.replace("/", "_") / filename,
+            )
+        except ComfyError:
+            raise ComfyError(
+                f"Could not locate output {filename} (subfolder={sub}) under "
+                f"{[str(r) for r in self._output_search_roots()]}"
+            )
+
 
     def generate(
         self,

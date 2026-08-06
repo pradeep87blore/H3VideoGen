@@ -59,8 +59,17 @@ class ProductionPipeline:
         return d
 
     def _save_state(self, state: ProjectState) -> None:
-        path = self._project_dir(state.project_id) / "state.json"
+        root = self._project_dir(state.project_id)
+        path = root / "state.json"
         path.write_text(state.model_dump_json(indent=2), encoding="utf-8")
+        # Plain-text log alongside assets (easy to open / attach / search)
+        try:
+            (root / "run.log").write_text(
+                "\n".join(state.log) + ("\n" if state.log else ""),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 
     def _log(self, state: ProjectState, msg: str, log: LogFn | None = None) -> None:
         line = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
@@ -306,7 +315,18 @@ class ProductionPipeline:
         return state
 
     def _ensure_services(self, state: ProjectState, log: LogFn | None) -> None:
-        self._log(state, "Checking ComfyUI / local LLM…", log)
+        from .services import essentials_report
+
+        report_pre = essentials_report(self.settings)
+        if report_pre.get("prompt"):
+            self._log(state, report_pre["prompt"].replace("\n", " | "), log)
+
+        deadline_note = min(self.settings.essentials_wait_sec, self.settings.comfy_start_timeout_sec)
+        self._log(
+            state,
+            f"Checking essentials (ComfyUI / Ollama / FFmpeg) — will wait ≤{deadline_note}s then fail if still down…",
+            log,
+        )
         report = ensure_runtime_services(
             self.settings,
             log=lambda m: self._log(state, m, log),
@@ -314,16 +334,53 @@ class ProductionPipeline:
             need_ollama=True,
         )
         comfy = report.get("comfy") or {}
-        if not comfy.get("ok") and not comfy_reachable(self.settings):
-            raise RuntimeError(
+        if not comfy.get("ok"):
+            msg = (
                 comfy.get("error")
-                or f"ComfyUI not reachable at {self.settings.comfy_base_url}"
+                or f"ComfyUI not ready at {self.settings.comfy_base_url}"
+            )
+            raise RuntimeError(
+                f"ESSENTIALS FAILED (within {deadline_note}s): {msg} "
+                "Start/replace ComfyUI with MiniMax H3 nodes (COMFYUI_ROOT), then Retry / Resume."
+            )
+        if self.settings.comfy_require_h3_nodes:
+            from .services import comfy_h3_status
+
+            h3 = comfy.get("h3") or comfy_h3_status(self.settings)
+            if not h3.get("ok"):
+                raise RuntimeError(
+                    "ESSENTIALS FAILED: MiniMax H3 nodes not found "
+                    f"({', '.join(h3.get('missing_nodes') or [])}). "
+                    f"COMFYUI_ROOT={self.settings.comfyui_root}; "
+                    "set COMFY_REPLACE_NON_H3=true if another app owns the port."
+                )
+        from .services import ffmpeg_available
+
+        if not ffmpeg_available(self.settings):
+            raise RuntimeError(
+                f"ESSENTIALS FAILED: FFmpeg not found ({self.settings.ffmpeg_path}). "
+                "Install FFmpeg and set FFMPEG_PATH in .env."
             )
         oll = report.get("ollama") or {}
-        if oll and not oll.get("ok") and oll.get("status") not in ("disabled", "skipped", "already_running"):
+        if oll and not oll.get("ok") and oll.get("status") not in (
+            "disabled",
+            "skipped",
+            "already_running",
+        ):
             self._log(
                 state,
-                f"Local LLM auto-start: {oll.get('status')} — {oll.get('error') or 'continuing without it'}",
+                f"Local LLM: {oll.get('status')} — {oll.get('error') or 'not available'}; "
+                "continuing (Gemini/offline fallback).",
+                log,
+            )
+        post = essentials_report(self.settings)
+        if post.get("warnings"):
+            for w in post["warnings"]:
+                self._log(state, f"Warning: {w}", log)
+        if not post.get("ok"):
+            self._log(
+                state,
+                "Essentials still have issues: " + " | ".join(post.get("blocking") or []),
                 log,
             )
 
@@ -504,10 +561,32 @@ class ProductionPipeline:
                     return accepted_frame
 
             dest = take_dir / f"{shot.id}_take{take}.mp4"
-            shutil.copy2(src, dest)
-            frames = extract_frames(self.settings, dest, take_dir / f"frames_t{take}")
+            try:
+                shutil.copy2(src, dest)
+            except Exception as copy_err:
+                # Last chance: re-resolve/download if path went stale
+                self._log(state, f"{shot.id}: copy failed ({copy_err}); re-fetching from Comfy…", log)
+                raise ComfyError(f"Could not copy generated clip: {copy_err}") from copy_err
+            if not dest.exists() or dest.stat().st_size < 1024:
+                raise ComfyError(f"Copied clip is empty/missing: {dest}")
+            try:
+                frames = extract_frames(self.settings, dest, take_dir / f"frames_t{take}")
+            except Exception as fe:
+                self._log(state, f"{shot.id} take {take}: frame extract failed ({fe})", log)
+                frames = []
             mid = frames[min(1, len(frames) - 1)] if frames else None
-            meta = probe(self.settings, dest)
+            try:
+                meta = probe(self.settings, dest)
+            except Exception as pe:
+                self._log(state, f"{shot.id} take {take}: probe failed ({pe})", log)
+                meta = {}
+            if not frames:
+                self._log(
+                    state,
+                    f"{shot.id} take {take}: no critic frames from {dest.name} "
+                    f"({dest.stat().st_size} bytes) — will still record take",
+                    log,
+                )
 
             # Bootstrap multi-view sheet from first good mid-frame if still empty
             if (

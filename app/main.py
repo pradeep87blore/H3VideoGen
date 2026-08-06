@@ -18,6 +18,7 @@ from .pipeline import ProductionPipeline, list_projects, load_state
 from .services import (
     comfy_reachable,
     ensure_runtime_services,
+    essentials_report,
     ollama_reachable,
 )
 
@@ -54,10 +55,17 @@ async def index(request: Request):
 async def health():
     comfy_ok = comfy_reachable(settings)
     comfy_info: Any = None
+    h3_info: Any = None
     err = None
     if comfy_ok:
         try:
-            comfy_info = ComfyH3Client(settings).health()
+            client = ComfyH3Client(settings)
+            comfy_info = client.health()
+            h3_info = client.h3_capability()
+            if settings.comfy_require_h3_nodes and not h3_info.get("ok"):
+                miss = ", ".join(h3_info.get("missing_nodes") or [])
+                err = f"H3 nodes missing ({miss})"
+                comfy_ok = False
         except Exception as e:
             err = str(e)
             comfy_ok = False
@@ -67,8 +75,12 @@ async def health():
     from .llm import LLMRouter
 
     llm_status = LLMRouter(settings).status()
+    essentials = essentials_report(settings)
     with _lock:
         running = any((v.get("status") or "") == "running" for v in _jobs.values())
+    from datetime import datetime, timezone
+
+    checked_at = datetime.now(timezone.utc).isoformat()
     return {
         "gemini_key_set": bool(settings.gemini_api_key),
         "voice_enabled": settings.enable_voice,
@@ -76,12 +88,21 @@ async def health():
         "comfy_url": settings.comfy_base_url,
         "comfy_error": err,
         "comfy_info": comfy_info,
+        "comfy_h3": h3_info,
         "auto_start_comfy": settings.auto_start_comfy,
+        "comfy_replace_non_h3": settings.comfy_replace_non_h3,
         "auto_start_ollama": settings.auto_start_ollama,
         "ollama_ok": ollama_reachable(settings),
         "llm": llm_status,
         "job_running": running,
         "cancel_requested": job_control.is_cancelled(),
+        "essentials": essentials,
+        "heartbeat": {
+            "interval_sec": 10,
+            "checked_at": checked_at,
+            "ready_for_generate": essentials.get("ready_for_generate", False),
+            "tools": essentials.get("services") or [],
+        },
     }
 
 
@@ -94,12 +115,15 @@ async def services_ensure():
         lines.append(m)
 
     report = ensure_runtime_services(settings, log=log, need_comfy=True, need_ollama=True)
+    essentials = essentials_report(settings)
+    comfy_rep = report.get("comfy") or {}
     return {
-        "ok": bool((report.get("comfy") or {}).get("ok") or comfy_reachable(settings)),
+        "ok": bool(comfy_rep.get("ok")),
         "report": report,
         "log": lines,
-        "comfy_ok": comfy_reachable(settings),
+        "comfy_ok": bool(comfy_rep.get("ok")),
         "ollama_ok": ollama_reachable(settings),
+        "essentials": essentials,
     }
 
 
@@ -123,6 +147,22 @@ def _job_snapshot(state_or_dict: Any, *, status: str | None = None) -> dict[str,
     """Normalize a job dict for the UI (logs from memory or disk)."""
     if hasattr(state_or_dict, "model_dump"):
         s = state_or_dict
+        chars = []
+        if s.plan and s.plan.characters:
+            for c in s.plan.characters:
+                chars.append(
+                    {
+                        "id": c.id,
+                        "name": c.name,
+                        "look": (c.look or "")[:220],
+                        "image_path": c.image_path,
+                        "sheet_count": sum(
+                            1
+                            for p in (c.sheet or [])
+                            if p.image_path
+                        ),
+                    }
+                )
         return {
             "status": status or s.status,
             "project_id": s.project_id,
@@ -130,6 +170,7 @@ def _job_snapshot(state_or_dict: Any, *, status: str | None = None) -> dict[str,
             "last_message": s.log[-1] if s.log else "",
             "master_path": s.master_path,
             "title": s.plan.title if s.plan else None,
+            "characters": chars,
             "temp": False,
         }
     return dict(state_or_dict)
@@ -214,6 +255,27 @@ def _run_job(req: GenerateRequest, temp_id: str) -> None:
             if pid:
                 j["project_id"] = pid
                 j["temp"] = False
+                # Keep cast list fresh for the UI after director plans
+                try:
+                    st = load_state(pid, settings)
+                    if st and st.plan:
+                        if st.plan.title:
+                            j["title"] = st.plan.title
+                        if st.plan.characters:
+                            j["characters"] = [
+                                {
+                                    "id": c.id,
+                                    "name": c.name,
+                                    "look": (c.look or "")[:220],
+                                    "image_path": c.image_path,
+                                    "sheet_count": sum(
+                                        1 for p in (c.sheet or []) if p.image_path
+                                    ),
+                                }
+                                for c in st.plan.characters
+                            ]
+                except Exception:
+                    pass
                 _jobs[pid] = j
             _jobs[temp_id] = j
 
@@ -322,6 +384,26 @@ def _run_resume_job(project_id: str, req: ResumeRequest, temp_id: str) -> None:
             if pid:
                 j["project_id"] = pid
                 j["temp"] = False
+                try:
+                    st = load_state(pid, settings)
+                    if st and st.plan:
+                        if st.plan.title:
+                            j["title"] = st.plan.title
+                        if st.plan.characters:
+                            j["characters"] = [
+                                {
+                                    "id": c.id,
+                                    "name": c.name,
+                                    "look": (c.look or "")[:220],
+                                    "image_path": c.image_path,
+                                    "sheet_count": sum(
+                                        1 for p in (c.sheet or []) if p.image_path
+                                    ),
+                                }
+                                for c in st.plan.characters
+                            ]
+                except Exception:
+                    pass
                 _jobs[pid] = j
             _jobs[temp_id] = j
 
@@ -562,6 +644,19 @@ async def jobs():
                     job["master_path"] = state.master_path
                 if state.plan:
                     job["title"] = state.plan.title
+                    if state.plan.characters:
+                        job["characters"] = [
+                            {
+                                "id": c.id,
+                                "name": c.name,
+                                "look": (c.look or "")[:220],
+                                "image_path": c.image_path,
+                                "sheet_count": sum(
+                                    1 for p in (c.sheet or []) if p.image_path
+                                ),
+                            }
+                            for c in state.plan.characters
+                        ]
                 disk_st = (state.status or "").lower()
                 mem_st = (job.get("status") or "").lower()
                 if mem_st in ("running", "cancelling") and disk_st in (

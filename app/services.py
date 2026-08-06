@@ -33,6 +33,20 @@ def comfy_reachable(settings: Settings, timeout: float = 3.0) -> bool:
         return False
 
 
+def comfy_h3_status(settings: Settings, timeout: float = 45.0) -> dict[str, Any]:
+    """Probe MiniMax H3 nodes on the configured Comfy base URL."""
+    if not comfy_reachable(settings, timeout=min(3.0, timeout)):
+        return {
+            "ok": False,
+            "reachable": False,
+            "missing_nodes": ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo"],
+            "error": f"Unreachable at {settings.comfy_base_url}",
+        }
+    from .comfy_h3 import ComfyH3Client
+
+    return ComfyH3Client(settings).h3_capability(timeout=timeout)
+
+
 def ollama_reachable(settings: Settings, timeout: float = 3.0) -> bool:
     if not settings.local_llm_enabled:
         return False
@@ -77,6 +91,134 @@ def _comfy_paths(settings: Settings) -> tuple[Path, Path]:
     return root, py
 
 
+def _pids_listening_on_port(port: int) -> list[int]:
+    """Best-effort: PIDs that currently own TCP listen on port (Windows + psutil-free)."""
+    pids: set[int] = set()
+    if sys.platform == "win32":
+        try:
+            # netstat -ano: ... LISTENING <pid>
+            out = subprocess.check_output(
+                ["netstat", "-ano", "-p", "tcp"],
+                text=True,
+                errors="replace",
+                timeout=15,
+            )
+            needle = f":{port}"
+            for line in out.splitlines():
+                if "LISTENING" not in line.upper():
+                    continue
+                if needle not in line:
+                    continue
+                # match :8188 as end of local address (avoid :81880)
+                parts = line.split()
+                if len(parts) < 5:
+                    continue
+                local = parts[1] if parts[0].upper().startswith("TCP") else parts[0]
+                if not local.endswith(needle) and f"{needle} " not in f"{local} ":
+                    # e.g. 127.0.0.1:8188
+                    if not local.rsplit(":", 1)[-1] == str(port):
+                        continue
+                try:
+                    pids.add(int(parts[-1]))
+                except ValueError:
+                    pass
+        except Exception:
+            pass
+        # PowerShell fallback
+        if not pids:
+            try:
+                ps = (
+                    f"(Get-NetTCPConnection -LocalPort {port} -State Listen "
+                    f"-ErrorAction SilentlyContinue).OwningProcess"
+                )
+                out = subprocess.check_output(
+                    ["powershell", "-NoProfile", "-Command", ps],
+                    text=True,
+                    errors="replace",
+                    timeout=20,
+                )
+                for tok in out.replace(",", " ").split():
+                    tok = tok.strip()
+                    if tok.isdigit():
+                        pids.add(int(tok))
+            except Exception:
+                pass
+    else:
+        try:
+            out = subprocess.check_output(
+                ["ss", "-ltnp"],
+                text=True,
+                errors="replace",
+                timeout=10,
+            )
+            for line in out.splitlines():
+                if f":{port} " in line or line.rstrip().endswith(f":{port}"):
+                    # users:(("python",pid=123,...
+                    if "pid=" in line:
+                        for piece in line.split("pid=")[1:]:
+                            num = "".join(ch for ch in piece if ch.isdigit())
+                            if num:
+                                pids.add(int(num))
+                                break
+        except Exception:
+            pass
+    return sorted(p for p in pids if p > 0)
+
+
+def stop_process_on_comfy_port(settings: Settings, log: LogFn | None = None) -> dict[str, Any]:
+    """Stop whatever is holding COMFYUI_PORT so the H3 install can bind."""
+    global _comfy_proc
+    port = int(settings.comfyui_port)
+    pids = _pids_listening_on_port(port)
+    # Also terminate a process we started earlier
+    if _comfy_proc and _comfy_proc.poll() is None:
+        try:
+            pids = sorted(set(pids) | {_comfy_proc.pid})
+        except Exception:
+            pass
+
+    if not pids:
+        return {"ok": True, "status": "port_free", "killed": []}
+
+    _emit(log, f"Stopping non-H3 / conflicting process(es) on port {port}: {pids}")
+    killed: list[int] = []
+    for pid in pids:
+        try:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    check=False,
+                    capture_output=True,
+                    timeout=30,
+                )
+            else:
+                os.kill(pid, 15)
+            killed.append(pid)
+        except Exception as exc:
+            _emit(log, f"Could not stop pid {pid}: {exc}")
+
+    # Wait until port answers no longer
+    deadline = time.time() + 25
+    while time.time() < deadline:
+        if not comfy_reachable(settings, timeout=1.0) and not _pids_listening_on_port(port):
+            break
+        time.sleep(0.5)
+
+    if _comfy_proc and _comfy_proc.poll() is not None:
+        _comfy_proc = None
+
+    still = _pids_listening_on_port(port)
+    if still:
+        return {
+            "ok": False,
+            "status": "port_busy",
+            "killed": killed,
+            "remaining": still,
+            "error": f"Port {port} still held by PIDs {still}",
+        }
+    return {"ok": True, "status": "stopped", "killed": killed}
+
+
 def start_comfyui(settings: Settings, log: LogFn | None = None) -> dict[str, Any]:
     """Launch ComfyUI in a new process if not already reachable."""
     global _comfy_proc
@@ -110,7 +252,8 @@ def start_comfyui(settings: Settings, log: LogFn | None = None) -> dict[str, Any
         str(settings.comfyui_port),
         *extra,
     ]
-    _emit(log, f"Starting ComfyUI: {' '.join(cmd[:4])} … (cwd={root})")
+    wait_budget = max(15, min(settings.comfy_start_timeout_sec, settings.essentials_wait_sec))
+    _emit(log, f"Starting ComfyUI (wait up to {wait_budget}s): {' '.join(cmd[:4])}…")
     try:
         kwargs: dict[str, Any] = {
             "cwd": str(root),
@@ -120,7 +263,6 @@ def start_comfyui(settings: Settings, log: LogFn | None = None) -> dict[str, Any
         }
         if sys.platform == "win32":
             kwargs["creationflags"] = _windows_new_console_flags()
-            # Don't inherit handles; survive parent exit as own window/process
         else:
             kwargs["start_new_session"] = True
 
@@ -128,7 +270,8 @@ def start_comfyui(settings: Settings, log: LogFn | None = None) -> dict[str, Any
     except Exception as exc:
         return {"ok": False, "status": "start_failed", "error": str(exc)}
 
-    deadline = time.time() + max(15, settings.comfy_start_timeout_sec)
+    deadline = time.time() + wait_budget
+    next_tick = time.time() + 15
     while time.time() < deadline:
         if comfy_reachable(settings, timeout=2.0):
             _emit(log, f"ComfyUI is up at {settings.comfy_base_url}")
@@ -138,21 +281,24 @@ def start_comfyui(settings: Settings, log: LogFn | None = None) -> dict[str, Any
                 "url": settings.comfy_base_url,
                 "pid": _comfy_proc.pid if _comfy_proc else None,
             }
-        # Early exit if process died
         if _comfy_proc and _comfy_proc.poll() is not None:
             return {
                 "ok": False,
                 "status": "exited",
                 "error": f"ComfyUI process exited early code={_comfy_proc.returncode}",
             }
+        if time.time() >= next_tick:
+            left = int(deadline - time.time())
+            _emit(log, f"Still waiting for ComfyUI… (~{left}s left before giving up)")
+            next_tick = time.time() + 15
         time.sleep(1.5)
 
     return {
         "ok": False,
         "status": "timeout",
         "error": (
-            f"ComfyUI did not answer {settings.comfy_base_url} within "
-            f"{settings.comfy_start_timeout_sec}s (still starting? check its console)."
+            f"ComfyUI did not answer {settings.comfy_base_url} within {wait_budget}s. "
+            "Start Comfy manually or check COMFYUI_ROOT / its console for errors."
         ),
         "pid": _comfy_proc.pid if _comfy_proc else None,
     }
@@ -230,6 +376,106 @@ def start_ollama(settings: Settings, log: LogFn | None = None) -> dict[str, Any]
     }
 
 
+def ensure_h3_comfy(settings: Settings, log: LogFn | None = None) -> dict[str, Any]:
+    """
+    Ensure the Comfy instance at COMFYUI_HOST:PORT has MiniMax H3 nodes.
+    If another Comfy (without H3) already owns the port, optionally replace it
+    with COMFYUI_ROOT (default E:/AI/ComfyUI).
+    """
+    if comfy_reachable(settings):
+        cap = comfy_h3_status(settings)
+        if cap.get("ok"):
+            _emit(log, f"ComfyUI H3-ready at {settings.comfy_base_url}")
+            return {
+                "ok": True,
+                "status": "already_running",
+                "url": settings.comfy_base_url,
+                "h3": cap,
+            }
+
+        missing = cap.get("missing_nodes") or []
+        _emit(
+            log,
+            f"ComfyUI is up at {settings.comfy_base_url} but missing H3 nodes: {missing}",
+        )
+        if not settings.comfy_replace_non_h3:
+            return {
+                "ok": False,
+                "status": "wrong_comfy",
+                "url": settings.comfy_base_url,
+                "h3": cap,
+                "error": (
+                    f"Comfy at {settings.comfy_base_url} lacks MiniMax H3 nodes "
+                    f"({', '.join(missing)}). Stop that process and start "
+                    f"{settings.comfyui_root}, or set COMFY_REPLACE_NON_H3=true."
+                ),
+            }
+        if not settings.auto_start_comfy:
+            return {
+                "ok": False,
+                "status": "wrong_comfy",
+                "h3": cap,
+                "error": (
+                    "Wrong ComfyUI on the port (no H3 nodes) and AUTO_START_COMFY=false. "
+                    f"Start {settings.comfyui_root} yourself."
+                ),
+            }
+
+        stop = stop_process_on_comfy_port(settings, log=log)
+        if not stop.get("ok"):
+            return {
+                "ok": False,
+                "status": "replace_failed",
+                "h3": cap,
+                "stop": stop,
+                "error": stop.get("error") or "Could not free Comfy port",
+            }
+        started = start_comfyui(settings, log=log)
+        if not started.get("ok"):
+            return {**started, "h3": cap, "stop": stop}
+
+        cap2 = comfy_h3_status(settings)
+        if settings.comfy_require_h3_nodes and not cap2.get("ok"):
+            return {
+                "ok": False,
+                "status": "started_without_h3",
+                "url": settings.comfy_base_url,
+                "h3": cap2,
+                "stop": stop,
+                "error": (
+                    f"Started Comfy from {settings.comfyui_root} but H3 nodes still missing: "
+                    f"{cap2.get('missing_nodes')}. Update ComfyUI to a build with nodes_minimax_h3."
+                ),
+            }
+        _emit(log, f"ComfyUI H3 nodes OK after replace -> {settings.comfy_base_url}")
+        return {**started, "status": "replaced", "h3": cap2, "stop": stop}
+
+    # Not reachable
+    if settings.auto_start_comfy:
+        started = start_comfyui(settings, log=log)
+        if not started.get("ok"):
+            return started
+        cap = comfy_h3_status(settings)
+        if settings.comfy_require_h3_nodes and not cap.get("ok"):
+            return {
+                "ok": False,
+                "status": "started_without_h3",
+                "url": settings.comfy_base_url,
+                "h3": cap,
+                "error": (
+                    f"ComfyUI started but lacks H3 nodes: {cap.get('missing_nodes')}. "
+                    f"Check COMFYUI_ROOT={settings.comfyui_root}."
+                ),
+            }
+        return {**started, "h3": cap}
+
+    return {
+        "ok": False,
+        "status": "not_running",
+        "error": "ComfyUI down and AUTO_START_COMFY=false",
+    }
+
+
 def ensure_runtime_services(
     settings: Settings,
     log: LogFn | None = None,
@@ -256,17 +502,7 @@ def ensure_runtime_services(
         }
 
     if need_comfy:
-        if comfy_reachable(settings):
-            report["comfy"] = {"ok": True, "status": "already_running", "url": settings.comfy_base_url}
-            _emit(log, f"ComfyUI already running at {settings.comfy_base_url}")
-        elif settings.auto_start_comfy:
-            report["comfy"] = start_comfyui(settings, log=log)
-        else:
-            report["comfy"] = {
-                "ok": False,
-                "status": "not_running",
-                "error": "ComfyUI down and AUTO_START_COMFY=false",
-            }
+        report["comfy"] = ensure_h3_comfy(settings, log=log)
 
     return report
 
@@ -279,3 +515,149 @@ def ensure_comfy_or_raise(settings: Settings, log: LogFn | None = None) -> None:
             comfy.get("error")
             or f"ComfyUI not reachable at {settings.comfy_base_url}"
         )
+
+
+def ffmpeg_available(settings: Settings) -> bool:
+    path = settings.ffmpeg_path or "ffmpeg"
+    if Path(path).is_file():
+        return True
+    return shutil.which(path) is not None
+
+
+def essentials_report(settings: Settings) -> dict[str, Any]:
+    """
+    Snapshot of tools needed for full generation.
+    `blocking` items must be healthy before Generate can succeed.
+    `warnings` are soft (pipeline can degrade / fall back).
+    """
+    services: list[dict[str, Any]] = []
+    blocking: list[str] = []
+    warnings: list[str] = []
+
+    comfy_ok = comfy_reachable(settings)
+    h3 = comfy_h3_status(settings) if comfy_ok else {
+        "ok": False,
+        "reachable": False,
+        "missing_nodes": ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo"],
+    }
+    h3_ok = bool(h3.get("ok"))
+    comfy_ready = comfy_ok and (h3_ok or not settings.comfy_require_h3_nodes)
+    if comfy_ok and h3_ok:
+        comfy_detail = f"{settings.comfy_base_url} (H3 nodes OK)"
+        comfy_fix = None
+    elif comfy_ok and not h3_ok:
+        miss = ", ".join(h3.get("missing_nodes") or [])
+        comfy_detail = f"{settings.comfy_base_url} but missing H3 nodes: {miss}"
+        comfy_fix = (
+            "Another ComfyUI is bound to this port without MiniMax H3. "
+            f"Stop it and start {settings.comfyui_root}, or enable AUTO_START_COMFY + "
+            "COMFY_REPLACE_NON_H3 (default true) so H3VideoGen can replace it."
+        )
+    else:
+        comfy_detail = f"Not reachable at {settings.comfy_base_url}"
+        comfy_fix = (
+            "Start ComfyUI with H3 models, or enable AUTO_START_COMFY "
+            f"(COMFYUI_ROOT={settings.comfyui_root}). Wait limit "
+            f"{min(settings.comfy_start_timeout_sec, settings.essentials_wait_sec)}s."
+        )
+    services.append(
+        {
+            "id": "comfyui",
+            "name": "ComfyUI (MiniMax H3)",
+            "ok": comfy_ready,
+            "required": True,
+            "detail": comfy_detail,
+            "fix": comfy_fix,
+            "h3": h3,
+        }
+    )
+    if not comfy_ok:
+        blocking.append(
+            f"ComfyUI is not running at {settings.comfy_base_url} — required for video generation."
+        )
+    elif settings.comfy_require_h3_nodes and not h3_ok:
+        blocking.append(
+            f"ComfyUI at {settings.comfy_base_url} is missing MiniMax H3 nodes "
+            f"({', '.join(h3.get('missing_nodes') or [])}). "
+            "Use the E:/AI/ComfyUI install (or update Comfy)."
+        )
+
+    ff_ok = ffmpeg_available(settings)
+    services.append(
+        {
+            "id": "ffmpeg",
+            "name": "FFmpeg",
+            "ok": ff_ok,
+            "required": True,
+            "detail": settings.ffmpeg_path if ff_ok else f"Not found: {settings.ffmpeg_path}",
+            "fix": None if ff_ok else "Install FFmpeg and set FFMPEG_PATH / FFPROBE_PATH in .env.",
+        }
+    )
+    if not ff_ok:
+        blocking.append(f"FFmpeg not found ({settings.ffmpeg_path}) — required for frames/master.")
+
+    gemini_ok = bool(settings.gemini_api_key and settings.gemini_api_key.strip())
+    services.append(
+        {
+            "id": "gemini",
+            "name": "Gemini API key",
+            "ok": gemini_ok,
+            "required": False,
+            "detail": "set" if gemini_ok else "GEMINI_API_KEY missing",
+            "fix": None
+            if gemini_ok
+            else "Set GEMINI_API_KEY in .env for best director/critic (offline/local fallback otherwise).",
+        }
+    )
+    if not gemini_ok:
+        warnings.append("Gemini key missing — director/critic will fall back to local LLM or offline.")
+
+    ollama_ok = ollama_reachable(settings) if settings.local_llm_enabled else True
+    if settings.local_llm_enabled:
+        services.append(
+            {
+                "id": "ollama",
+                "name": "Local LLM (Ollama)",
+                "ok": ollama_ok,
+                "required": False,
+                "detail": settings.local_llm_base_url if ollama_ok else f"Not reachable at {settings.local_llm_base_url}",
+                "fix": None
+                if ollama_ok
+                else "Start Ollama (`ollama serve`) or enable AUTO_START_OLLAMA — used when Gemini is down.",
+            }
+        )
+        if not ollama_ok and not gemini_ok:
+            blocking.append(
+                "Neither Gemini nor local LLM (Ollama) is available — director will use offline templates only."
+            )
+        elif not ollama_ok:
+            warnings.append(
+                f"Ollama not running at {settings.local_llm_base_url} — Gemini is the only strong planner/critic."
+            )
+
+    wait_sec = max(30, min(settings.essentials_wait_sec, 600))
+    return {
+        "ok": len(blocking) == 0,
+        "ready_for_generate": comfy_ready and ff_ok,
+        "services": services,
+        "blocking": blocking,
+        "warnings": warnings,
+        "wait_limit_sec": wait_sec,
+        "prompt": _essentials_prompt(blocking, warnings, wait_sec),
+    }
+
+
+def _essentials_prompt(blocking: list[str], warnings: list[str], wait_sec: int) -> str | None:
+    if not blocking and not warnings:
+        return None
+    lines = ["Prerequisites check:"]
+    if blocking:
+        lines.append("BLOCKING (fix these before Generate):")
+        lines.extend(f"  • {b}" for b in blocking)
+        lines.append(
+            f"Auto-start will wait at most {wait_sec // 60} min ({wait_sec}s) for ComfyUI/Ollama, then stop with an error."
+        )
+    if warnings:
+        lines.append("Warnings:")
+        lines.extend(f"  • {w}" for w in warnings)
+    return "\n".join(lines)

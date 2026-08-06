@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     comfyui_timeout_sec: int = Field(default=3600, alias="COMFYUI_TIMEOUT_SEC")
 
     output_root: Path = Field(default=ROOT / "outputs", alias="OUTPUT_ROOT")
-    comfy_output_root: Path = Field(default=Path(r"E:/AI/Outputs"), alias="COMFY_OUTPUT_ROOT")
+    comfy_output_root: Path = Field(default=Path(r"E:/AI/ComfyUI/output"), alias="COMFY_OUTPUT_ROOT")
     ai_root: Path = Field(default=Path(r"E:/AI"), alias="AI_ROOT")
     ffmpeg_path: str = Field(default="ffmpeg", alias="FFMPEG_PATH")
     ffprobe_path: str = Field(default="ffprobe", alias="FFPROBE_PATH")
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     character_sheet_poses_primary: int = Field(default=5, alias="CHARACTER_SHEET_POSES_PRIMARY")
     character_sheet_poses_secondary: int = Field(default=2, alias="CHARACTER_SHEET_POSES_SECONDARY")
     # Max reference images attached per R2V shot (H3 hard cap is 9)
-    character_sheet_max_refs_per_shot: int = Field(default=8, alias="CHARACTER_SHEET_MAX_REFS_PER_SHOT")
+    character_sheet_max_refs_per_shot: int = Field(default=4, alias="CHARACTER_SHEET_MAX_REFS_PER_SHOT")
     # If Gemini stills fail / incomplete, run a short H3 T2V turnaround
     character_sheet_use_h3: bool = Field(default=True, alias="CHARACTER_SHEET_USE_H3")
     gemini_image_models: Annotated[list[str], NoDecode] = Field(
@@ -66,10 +66,11 @@ class Settings(BaseSettings):
         alias="GEMINI_IMAGE_MODELS",
     )
 
-    default_width: int = Field(default=1344, alias="DEFAULT_WIDTH")
-    default_height: int = Field(default=768, alias="DEFAULT_HEIGHT")
+    # 960x544 is safer on ~16GB VRAM for R2V; bump to 1344x768 when you have headroom
+    default_width: int = Field(default=960, alias="DEFAULT_WIDTH")
+    default_height: int = Field(default=544, alias="DEFAULT_HEIGHT")
     default_fps: int = Field(default=24, alias="DEFAULT_FPS")
-    default_steps: int = Field(default=20, alias="DEFAULT_STEPS")
+    default_steps: int = Field(default=16, alias="DEFAULT_STEPS")
     default_length_frames: int = Field(default=124, alias="DEFAULT_LENGTH_FRAMES")
     max_retakes: int = Field(default=2, alias="MAX_RETAKES")
     critic_pass_threshold: float = Field(default=7.5, alias="CRITIC_PASS_THRESHOLD")
@@ -106,12 +107,18 @@ class Settings(BaseSettings):
     comfyui_root: Path = Field(default=Path(r"E:/AI/ComfyUI"), alias="COMFYUI_ROOT")
     comfyui_python: str = Field(default="", alias="COMFYUI_PYTHON")  # empty → <root>/.venv/Scripts/python.exe
     comfyui_extra_args: Annotated[list[str], NoDecode] = Field(
-        default_factory=list,
+        default_factory=lambda: ["--lowvram"],
         alias="COMFYUI_EXTRA_ARGS",
     )
-    comfy_start_timeout_sec: int = Field(default=180, alias="COMFY_START_TIMEOUT_SEC")
+    comfy_start_timeout_sec: int = Field(default=300, alias="COMFY_START_TIMEOUT_SEC")
+    # If something is listening on COMFYUI_PORT but lacks H3 nodes, free the port and start COMFYUI_ROOT
+    comfy_replace_non_h3: bool = Field(default=True, alias="COMFY_REPLACE_NON_H3")
+    # Fail generate when H3 nodes are missing (after any replace attempt)
+    comfy_require_h3_nodes: bool = Field(default=True, alias="COMFY_REQUIRE_H3_NODES")
     ollama_cmd: str = Field(default="ollama", alias="OLLAMA_CMD")
-    ollama_start_timeout_sec: int = Field(default=45, alias="OLLAMA_START_TIMEOUT_SEC")
+    ollama_start_timeout_sec: int = Field(default=60, alias="OLLAMA_START_TIMEOUT_SEC")
+    # Max time to wait for essential tools (ComfyUI, etc.) before failing with a clear prompt
+    essentials_wait_sec: int = Field(default=300, alias="ESSENTIALS_WAIT_SEC")
 
     @field_validator(
         "gemini_model_fallbacks",

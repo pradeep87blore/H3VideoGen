@@ -8,6 +8,18 @@
 </head>
 <body>
   <div class="bg"></div>
+  <div id="essentials-banner" class="essentials-banner hidden" role="alert">
+    <div class="essentials-banner-inner">
+      <div>
+        <strong id="essentials-title">Prerequisites need attention</strong>
+        <pre id="essentials-body" class="essentials-body"></pre>
+      </div>
+      <div class="essentials-actions">
+        <button type="button" class="btn primary sm" id="btn-start-services">Start services</button>
+        <button type="button" class="btn ghost sm" id="btn-essentials-dismiss">Dismiss</button>
+      </div>
+    </div>
+  </div>
   <header class="top">
     <div class="brand">
       <span class="mark">H3</span>
@@ -16,7 +28,19 @@
         <p class="sub">Gemini Director + Harsh Critic · MiniMax H3 · local</p>
       </div>
     </div>
-    <div class="health" id="health">checking…</div>
+    <div class="health-wrap">
+      <div class="health" id="health">checking…</div>
+      <div class="heartbeat" id="heartbeat" aria-live="polite" title="Tool health (refreshes every 10s)">
+        <div class="heartbeat-meta">
+          <span class="heartbeat-pulse" id="heartbeat-pulse" aria-hidden="true"></span>
+          <span class="heartbeat-label">Tools</span>
+          <span class="heartbeat-ago" id="heartbeat-ago">—</span>
+        </div>
+        <div class="heartbeat-tools" id="heartbeat-tools">
+          <span class="tool-chip muted">Checking…</span>
+        </div>
+      </div>
+    </div>
   </header>
 
   <main class="layout">
@@ -52,10 +76,22 @@
       <p class="hint">Voice/narration is disabled. Critic threshold: {{ critic_threshold }}/10. ComfyUI: {{ comfy_url }}. Incomplete projects show <strong>Resume</strong>. Generate/Resume auto-starts ComfyUI &amp; Ollama when configured.</p>
     </section>
 
-    <section class="panel side">
-      <h2>Live log</h2>
-      <pre id="log" class="log">Idle. Plan or generate to begin.</pre>
-      <div id="result" class="result hidden"></div>
+    <section class="panel side stack-side">
+      <div class="cast-block">
+        <h2>Characters</h2>
+        <div id="cast-list" class="cast-list">
+          <p class="hint cast-empty">Characters appear here after the director plans the cast.</p>
+        </div>
+      </div>
+      <div class="log-block">
+        <div class="row between log-head">
+          <h2>Live log</h2>
+          <button type="button" class="btn ghost sm" id="btn-copy-log" title="Copy entire log to clipboard">Copy log</button>
+        </div>
+        <pre id="log" class="log">Idle. Plan or generate to begin.</pre>
+        <div id="result" class="result hidden"></div>
+        <p class="hint log-disk-hint">Logs are also saved on disk with each run: <code>outputs/&lt;project_id&gt;/run.log</code> and <code>state.json</code>.</p>
+      </div>
     </section>
 
     <section class="panel wide">
@@ -72,6 +108,6 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=9"></script>
 </body>
 </html>

@@ -1,0 +1,10 @@
+{
+  "prompt": "Tiny Bunny found a glowing seed beside a stream. She planted it with care and watered it every day. Soon, a beautiful tree grew with golden fruit. Tiny Bunny shared the fruit with all her forest friends, and everyone smiled together. From that day on, she learned that kindness grows into wonderful things.",
+  "style": "Premium handcrafted origami animation, museum-quality paper craftsmanship, intricate folds, layered paper diorama, subtle paper fibers, soft global illumination, volumetric sunlight through paper trees, cinematic camera movements, macro lens details, ultra-clean rendering, 4K, enchanting children's storybook aesthetic.",
+  "target_duration_sec": 20,
+  "max_shots": 12,
+  "max_retakes": 2,
+  "auto_assemble": true,
+  "seed_base": 42,
+  "h3_mode": "r2v"
+}
