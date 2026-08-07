@@ -125,6 +125,89 @@ def make_title_card(settings: Settings, path: Path, title: str, subtitle: str, s
     return path
 
 
+def mux_narration(
+    settings: Settings,
+    video: Path,
+    narration: Path,
+    out_path: Path,
+    *,
+    ambient_mix: float | None = None,
+    voice_gain: float | None = None,
+) -> Path:
+    """Replace / mix under master video with ElevenLabs narration + lightly ducked ambience."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    ambient = ambient_mix if ambient_mix is not None else float(settings.narration_ambient_mix)
+    voice = voice_gain if voice_gain is not None else float(settings.narration_voice_gain)
+    ambient = max(0.0, min(1.0, ambient))
+    voice = max(0.05, min(2.0, voice))
+
+    # Detect whether video has an audio stream
+    try:
+        meta = probe(settings, video)
+        has_audio = any(
+            (s.get("codec_type") or "") == "audio" for s in (meta.get("streams") or [])
+        )
+    except Exception:
+        has_audio = True
+
+    if has_audio:
+        filt = (
+            f"[0:a]aformat=sample_rates=48000:channel_layouts=stereo,volume={ambient:.3f}[a0];"
+            f"[1:a]aformat=sample_rates=48000:channel_layouts=stereo,volume={voice:.3f}[a1];"
+            f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+        )
+        cmd = [
+            settings.ffmpeg_path,
+            "-y",
+            "-i",
+            str(video),
+            "-i",
+            str(narration),
+            "-filter_complex",
+            filt,
+            "-map",
+            "0:v:0",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(out_path),
+        ]
+    else:
+        cmd = [
+            settings.ffmpeg_path,
+            "-y",
+            "-i",
+            str(video),
+            "-i",
+            str(narration),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(out_path),
+        ]
+    run(cmd)
+    return out_path
+
+
 def assemble_master(
     settings: Settings,
     clips: list[Path],

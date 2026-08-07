@@ -7,11 +7,11 @@ from typing import Any, Callable
 
 from ..config import Settings
 from ..llm import LLMRouter
-from ..models import CriticReview, CriticVerdict, ProductionPlan, ShotPlan
+from ..models import CriticReview, CriticVerdict, NarrativeMode, ProductionPlan, ShotPlan, normalize_narrative_mode
 
 LogFn = Callable[[str], None]
 
-CRITIC_SYSTEM = """You are a HARSH film critic and YouTube content QA lead.
+CRITIC_SYSTEM_CHARACTER = """You are a HARSH film critic and YouTube content QA lead.
 You review AI-generated video stills (and metadata) for a short that must be good enough
 to upload on YouTube without embarrassment.
 
@@ -30,17 +30,48 @@ Rules:
 - overall_score < 7.5 → cannot be PASS (use RETAKE or REJECT)
 - text/logos/watermarks → REJECT or RETAKE with fix
 - CAST LEAKAGE is a hard fail: if CHARACTER PRESENCE / ABSENT / CAST EXCLUSIVITY bans a character
-  (e.g. only Goldilocks should appear but Papa/Mama/Baby Bear are visible, even in bg/silhouette),
-  score character_fidelity ≤ 3 and verdict RETAKE. revised_prompt must order their complete removal.
+  score character_fidelity ≤ 3 and verdict RETAKE.
 - wrong characters present → RETAKE
 - photoreal vs style mismatch when style is animated → RETAKE
 - boring empty frame with no story → RETAKE
 - If pass, youtube_ready=true only if overall_score >= 8.0 AND no critical issues
 
-Always provide revised_prompt: an improved visual-only prompt body for a retake
-(not full style bible—just the action/scene improvements).
-
+Always provide revised_prompt: an improved visual-only prompt body for a retake.
 Return ONLY JSON."""
+
+CRITIC_SYSTEM_DOCUMENTARY = """You are a harsh documentary finishing critic for short history/event films.
+Score 0–10: composition, character_fidelity (reuse for subject continuity of place/vehicles —
+not face lock), style_consistency, motion_readability, story_clarity (does the historical beat read?),
+youtube_polish.
+
+Rules:
+- overall_score < 7.5 → RETAKE or REJECT
+- on-screen text/logos/watermarks → RETAKE
+- anachronistic mix that breaks the era look → RETAKE
+- empty frame with no documentary information → RETAKE
+- Do NOT fail solely because there is no named protagonist face.
+Always provide revised_prompt as improved scene action. Return ONLY JSON."""
+
+CRITIC_SYSTEM_EXPLAINER = """You are a harsh educational explainer critic for short concept videos
+(inflation, Bitcoin, science). Score composition, character_fidelity (treat as metaphor consistency),
+style_consistency, motion_readability, story_clarity (does the teaching beat read without VO?),
+youtube_polish.
+
+Rules:
+- overall_score < 7.5 → RETAKE
+- on-screen text/charts with numbers → RETAKE (models mangle text)
+- metaphor too abstract / unreadable → RETAKE
+- style drift that breaks the education brand → RETAKE
+Always provide revised_prompt. Return ONLY JSON."""
+
+
+def _critic_system(mode: str) -> str:
+    m = normalize_narrative_mode(mode)
+    if m == NarrativeMode.documentary.value:
+        return CRITIC_SYSTEM_DOCUMENTARY
+    if m == NarrativeMode.explainer.value:
+        return CRITIC_SYSTEM_EXPLAINER
+    return CRITIC_SYSTEM_CHARACTER
 
 
 class CriticAgent:
@@ -137,7 +168,7 @@ JSON schema:
 """
 
         result = self.llm.critic_review_payload(
-            system=CRITIC_SYSTEM,
+            system=_critic_system(getattr(plan, "narrative_mode", None) or "character"),
             user=brief,
             images=existing,
             offline_kwargs={

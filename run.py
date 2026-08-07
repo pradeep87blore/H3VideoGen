@@ -40,6 +40,7 @@ def _merge_job_payload(
     no_assemble: bool,
     seed: int | None = None,
     h3_mode: str | None = None,
+    narrative_mode: str | None = None,
 ) -> dict[str, Any]:
     """Build GenerateRequest kwargs from optional JSON + CLI overrides."""
     data: dict[str, Any] = {}
@@ -58,6 +59,8 @@ def _merge_job_payload(
         "story": "prompt",
         "concept": "prompt",
         "visual_style": "style",
+        "mode": "narrative_mode",
+        "narrative": "narrative_mode",
     }
     for src, dst in aliases.items():
         if src in data and dst not in data:
@@ -79,6 +82,8 @@ def _merge_job_payload(
         data["seed_base"] = seed
     if h3_mode is not None:
         data["h3_mode"] = h3_mode
+    if narrative_mode is not None:
+        data["narrative_mode"] = narrative_mode
 
     if not str(data.get("prompt") or "").strip():
         raise SystemExit(
@@ -155,6 +160,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         no_assemble=args.no_assemble,
         seed=args.seed,
         h3_mode=args.h3_mode,
+        narrative_mode=getattr(args, "narrative_mode", None),
     )
     req = GenerateRequest.model_validate(payload)
 
@@ -231,6 +237,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         shots=args.shots,
         retakes=None,
         no_assemble=False,
+        narrative_mode=getattr(args, "narrative_mode", None),
     )
     req = DirectorOnlyRequest.model_validate(
         {
@@ -238,10 +245,15 @@ def cmd_plan(args: argparse.Namespace) -> int:
             "style": payload.get("style", "Premium 3D animated cinematic short"),
             "target_duration_sec": payload.get("target_duration_sec", 60.0),
             "max_shots": payload.get("max_shots", 12),
+            "narrative_mode": payload.get("narrative_mode", "character"),
         }
     )
     plan = ProductionPipeline().plan_only(
-        req.prompt, req.style, req.target_duration_sec, req.max_shots
+        req.prompt,
+        req.style,
+        req.target_duration_sec,
+        req.max_shots,
+        narrative_mode=req.narrative_mode,
     )
     print(plan.model_dump_json(indent=2))
     return 0
@@ -272,6 +284,13 @@ def main(argv: list[str] | None = None) -> int:
     p_gen.add_argument("--retakes", type=int, default=None, help="Max retakes per shot")
     p_gen.add_argument("--seed", type=int, default=None, help="Seed base")
     p_gen.add_argument("--h3-mode", dest="h3_mode", default=None, choices=["r2v", "t2v", "auto"])
+    p_gen.add_argument(
+        "--narrative-mode",
+        dest="narrative_mode",
+        default=None,
+        choices=["character", "documentary", "explainer"],
+        help="character | documentary | explainer",
+    )
     p_gen.add_argument("--no-assemble", action="store_true")
     p_gen.set_defaults(func=cmd_generate)
 
@@ -294,6 +313,12 @@ def main(argv: list[str] | None = None) -> int:
     p_plan.add_argument("--style", default=None)
     p_plan.add_argument("--duration", type=float, default=None)
     p_plan.add_argument("--shots", type=int, default=None)
+    p_plan.add_argument(
+        "--narrative-mode",
+        dest="narrative_mode",
+        default=None,
+        choices=["character", "documentary", "explainer"],
+    )
     p_plan.set_defaults(func=cmd_plan)
 
     args = parser.parse_args(argv)

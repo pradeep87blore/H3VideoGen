@@ -1,4 +1,4 @@
-"""Film director: concept → production plan + shot list (Gemini with local/offline fallback)."""
+"""Film director: concept → production plan + shot list (mode-aware)."""
 from __future__ import annotations
 
 from typing import Callable
@@ -6,43 +6,63 @@ from typing import Callable
 from ..character_board import ensure_character_designs
 from ..config import Settings
 from ..llm import LLMRouter
-from ..models import CharacterDesign, ProductionPlan, ShotPlan
+from ..models import CharacterDesign, NarrativeMode, ProductionPlan, ShotPlan, normalize_narrative_mode
 
 LogFn = Callable[[str], None]
 
-DIRECTOR_SYSTEM = """You are an elite film DIRECTOR for short AI-generated YouTube videos.
+DIRECTOR_SYSTEM_CHARACTER = """You are an elite film DIRECTOR for short AI-generated YouTube videos.
 You design production packages that a video generation model (MiniMax H3) will render as
-short clips (~5s each) with optional ambient audio (no voiceover required yet).
+short clips (~5s each) with optional ambient audio and a separate narrator track.
 
 Hard constraints for H3 clips:
-- Each shot is a SINGLE continuous take (no multi-cut montage inside one clip unless
-  the model can hold one continuous camera idea).
+- Each shot is a SINGLE continuous take (no multi-cut montage inside one clip).
 - Duration snaps to ~5s (124 frames @ 24fps) unless you specially request longer.
-- Frame: 16:9, ~1344x768, cinematic.
+- Frame: 16:9, cinematic.
 - No on-screen text, logos, watermarks, subtitles, or UI.
-- Prefer unified stylized 3D / animated / cinematic look as styled by the user — not
-  mixed photoreal + cartoon unless the style says so.
-- Prefer clear action, readable silhouette, strong scale/emotion for YouTube retention.
+- Prefer unified stylized look as styled by the user.
+- Prefer clear action, readable silhouette for YouTube retention.
 - Write visual prompts as rich production prose a video model can follow.
 - Include character locks so continuity holds across shots.
-- CAST EXCLUSIVITY IS CRITICAL: H3 video models invent extra cast if the prompt
-  names or implies the full ensemble. Prevent this carefully:
-  • ref_character_ids = ONLY character ids physically visible this take (never everyone "for continuity").
-  • character_presence must list who APPEARS and who is ABSENT by name ("Goldilocks alone;
-    Papa/Mama/Baby Bear must not appear: no silhouettes, faces, or bodies anywhere in frame").
-  • visual_prompt for alone/empty-house beats must not stage the absent cast in the background.
-  • When the story is "cottage of the three bears" but only Goldilocks is home, describe
-    empty furniture/set dressing — do NOT show the bears watching or waiting.
-- Define a short list of main CHARACTERS (id C01..) with precise look bible text and
-  board_prompt describing a multi-view design sheet (face + body identity for stills).
-
-YouTube bar (your job at planning stage):
-- Hook in first shot (3 seconds of attention).
-- Clear emotional arc even in 60–120s.
-- Varied shot sizes: wide / medium / close for rhythm.
-- Consistent style bible.
+- CAST EXCLUSIVITY IS CRITICAL: H3 invents extra cast if the prompt names the full ensemble.
+  • ref_character_ids = ONLY ids physically visible this take.
+  • character_presence lists APPEARS and ABSENT by name.
+  • empty house/prop shots leave cast out of visual_prompt.
+- Define main CHARACTERS (id C01..) with precise look bible + board_prompt.
+- narration_line: one short sentence of third-person documentary-style narrator VO for that shot
+  (not character dialogue). Natural pacing for ~5s.
 
 Return ONLY valid JSON matching the schema. No markdown fences."""
+
+DIRECTOR_SYSTEM_DOCUMENTARY = """You are an elite documentary DIRECTOR for short commemorative / history YouTube videos.
+MiniMax H3 will render ~5s continuous cinematic clips. A professional narrator (ElevenLabs) will speak later.
+
+Hard constraints:
+- NO protagonist character-lock packages. Prefer places, armies, machines, nature, crowds as masses.
+- Do NOT invent a named main cast list unless a specific historical figure is essential (at most 1–2).
+  Prefer empty characters array.
+- ref_character_ids must always be [] when characters is empty.
+- Each shot is one continuous take; no on-screen text/logos/charts with readable labels.
+- Visuals convey history through environment, scale, era detail, and action.
+- narration_line: calm documentary VO covering that beat (spoken English, ~5s worth of words).
+- Style unified hyper-real OR stylized documentary look from the style bible.
+- Hook early; clear cause→effect arc; historical tone (not parody unless prompt asks).
+
+Return ONLY valid JSON. No markdown fences."""
+
+DIRECTOR_SYSTEM_EXPLAINER = """You are an elite educational DIRECTOR for short concept explainer YouTube videos
+(e.g. inflation, Bitcoin, gravity). MiniMax H3 renders ~5s continuous clips; ElevenLabs narrates.
+
+Hard constraints:
+- Teach ONE clear idea via visual metaphors — not a character fairy tale.
+- characters array should be EMPTY (or at most one optional "prop mascot" if useful — prefer empty).
+- ref_character_ids always [] when no characters.
+- No on-screen text, charts with numbers, logos, watermarks, UI.
+- Prefer abstract but concrete metaphors (coins, factories, scales, digital ledgers as objects/places).
+- Shot structure typically: hook problem → simple definition → mechanism → example → takeaway.
+- narration_line: clear plain-language teacher VO for ~5s (no jargon dump; one idea per shot).
+- Keep style bible coherent so the metaphor world feels like one channel brand.
+
+Return ONLY valid JSON. No markdown fences."""
 
 
 def _align_frames(seconds: float, fps: int = 24) -> int:
@@ -51,6 +71,15 @@ def _align_frames(seconds: float, fps: int = 24) -> int:
     while n % 17 != 5:
         n += 1
     return n
+
+
+def _mode_system(mode: str) -> str:
+    m = normalize_narrative_mode(mode)
+    if m == NarrativeMode.documentary.value:
+        return DIRECTOR_SYSTEM_DOCUMENTARY
+    if m == NarrativeMode.explainer.value:
+        return DIRECTOR_SYSTEM_EXPLAINER
+    return DIRECTOR_SYSTEM_CHARACTER
 
 
 class DirectorAgent:
@@ -66,68 +95,17 @@ class DirectorAgent:
         style: str,
         target_duration_sec: float = 60.0,
         max_shots: int = 12,
+        narrative_mode: str = "character",
     ) -> ProductionPlan:
+        mode = normalize_narrative_mode(narrative_mode)
         shot_count = max(2, min(max_shots, int(round(target_duration_sec / 5.0))))
         per_shot = target_duration_sec / shot_count
-
-        user_msg = f"""Create a full production plan for this YouTube short.
-
-STORY / CONCEPT:
-{user_prompt}
-
-VISUAL STYLE (separate from story — enforce strictly):
-{style}
-
-TARGET DURATION: ~{target_duration_sec:.0f} seconds
-SHOT BUDGET: exactly {shot_count} shots (~{per_shot:.1f}s each)
-RESOLUTION: 1344x768 16:9 @ 24fps
-
-JSON schema:
-{{
-  "title": "string",
-  "logline": "string",
-  "target_duration_sec": number,
-  "aspect_ratio": "16:9",
-  "style_bible": "one dense paragraph locking look, lighting, materials, era",
-  "character_lock": "explicit character designs for continuity (summary)",
-  "characters": [
-    {{
-      "id": "C01",
-      "name": "character name",
-      "look": "face, hair, outfit, age, proportions — precise for lock",
-      "board_prompt": "identity bible for multi-view design sheet: face, hair, outfit, proportions; plain studio bg; single character"
-    }}
-  ],
-  "color_grade": "string",
-  "audio_bed": "diegetic + music notes without spoken dialogue unless necessary SFX",
-  "youtube_notes": "hook + retention strategy",
-  "raw_director_notes": "anything else",
-  "shots": [
-    {{
-      "id": "S01",
-      "name": "short name",
-      "beat": "story function",
-      "duration_sec": {per_shot:.1f},
-      "visual_prompt": "full render prompt body (scene action)",
-      "camera": "lens / move",
-      "audio_notes": "string",
-      "character_presence": "who/what must appear / must NOT appear",
-      "ref_character_ids": ["C01"]
-    }}
-  ]
-}}
-
-Characters: max 4 main cast. C01 MUST be the story protagonist (e.g. Goldilocks),
-not a supporting ensemble member. Supporting family (bears, etc.) are C02+.
-Every shot that shows a cast member must list their id in ref_character_ids.
-Shots with no living cast use ref_character_ids: [] and character_presence "no living characters on screen; empty set only".
-Do NOT put the full cast in every ref_character_ids "for continuity" — that forces everyone on screen.
-Shot IDs must be S01..S{shot_count:02d} in order.
-Make visual_prompt detailed enough for a diffusion video model.
-"""
+        user_msg = self._user_prompt(
+            user_prompt, style, target_duration_sec, shot_count, per_shot, mode
+        )
 
         result = self.llm.director_plan_payload(
-            system=DIRECTOR_SYSTEM,
+            system=_mode_system(mode),
             user=user_msg,
             offline_kwargs={
                 "user_prompt": user_prompt,
@@ -135,17 +113,28 @@ Make visual_prompt detailed enough for a diffusion video model.
                 "target_duration_sec": target_duration_sec,
                 "shot_count": shot_count,
                 "per_shot": per_shot,
+                "narrative_mode": mode,
             },
         )
         self.last_provider = result.provider
         data = result.data
-        # tolerate missing characters
-        if "characters" not in data or not data.get("characters"):
+        if "characters" not in data or data.get("characters") is None:
             data["characters"] = []
+        data["narrative_mode"] = mode
         plan = ProductionPlan.model_validate(data)
-        ensure_character_designs(plan, story_hint=user_prompt)
+        plan.narrative_mode = mode
 
-        # Normalize frames / ids
+        invent_cast = mode == NarrativeMode.character.value
+        if invent_cast:
+            ensure_character_designs(plan, story_hint=user_prompt)
+        else:
+            # Keep only explicit characters with names; drop empty invented noise
+            plan.characters = [
+                c for c in (plan.characters or []) if (c.name or "").strip()
+            ][:4]
+            for i, c in enumerate(plan.characters):
+                c.id = f"C{i+1:02d}"
+
         shots: list[ShotPlan] = []
         known_ids = {c.id for c in plan.characters}
         for i, s in enumerate(plan.shots[:shot_count]):
@@ -157,8 +146,7 @@ Make visual_prompt detailed enough for a diffusion video model.
                 if r not in deduped:
                     deduped.append(r)
             refs = deduped
-            # Empty refs allowed (empty set / prop-only). Default lead only when cast was omitted.
-            if not refs and plan.characters:
+            if invent_cast and not refs and plan.characters:
                 presence_l = (s.character_presence or "").lower()
                 empty_intent = any(
                     k in presence_l
@@ -169,11 +157,13 @@ Make visual_prompt detailed enough for a diffusion video model.
                         "none on",
                         "prop only",
                         "no living",
-                        "just the",  # e.g. just the three bowls
+                        "just the",
                     )
                 )
                 if not empty_intent:
                     refs = [plan.characters[0].id]
+            if not invent_cast:
+                refs = [r for r in refs if r in known_ids]
             presence = enforce_character_presence_text(
                 plan, refs, existing=s.character_presence or ""
             )
@@ -189,14 +179,17 @@ Make visual_prompt detailed enough for a diffusion video model.
                     audio_notes=s.audio_notes,
                     character_presence=presence,
                     ref_character_ids=refs,
+                    narration_line=(s.narration_line or "").strip(),
                     seed=None,
                 )
             )
         while len(shots) < shot_count:
             i = len(shots)
             frames = _align_frames(per_shot)
-            refs = [plan.characters[0].id] if plan.characters else []
-            presence = enforce_character_presence_text(plan, refs, existing="Story subject only")
+            refs = [plan.characters[0].id] if invent_cast and plan.characters else []
+            presence = enforce_character_presence_text(
+                plan, refs, existing="Story subject only" if invent_cast else "Visual metaphor only"
+            )
             shots.append(
                 ShotPlan(
                     id=f"S{i+1:02d}",
@@ -209,6 +202,7 @@ Make visual_prompt detailed enough for a diffusion video model.
                     audio_notes="Diegetic ambience",
                     character_presence=presence,
                     ref_character_ids=refs,
+                    narration_line="",
                     seed=None,
                 )
             )
@@ -216,10 +210,135 @@ Make visual_prompt detailed enough for a diffusion video model.
         plan.target_duration_sec = sum(s.duration_sec for s in shots)
         if not plan.style_bible:
             plan.style_bible = style
+        # Build full narration script if LLM left it empty
+        if not (plan.narration_script or "").strip():
+            joined = " ".join(
+                (s.narration_line.rstrip(".") + ".")
+                for s in plan.shots
+                if (s.narration_line or "").strip()
+            )
+            plan.narration_script = joined.strip()
         if result.provider.startswith("offline"):
             note = "Offline template plan (no LLM)."
             plan.raw_director_notes = f"{plan.raw_director_notes}\n{note}".strip()
         return plan
+
+    def _user_prompt(
+        self,
+        user_prompt: str,
+        style: str,
+        target_duration_sec: float,
+        shot_count: int,
+        per_shot: float,
+        mode: str,
+    ) -> str:
+        common_head = f"""Create a full production plan for this YouTube short.
+
+NARRATIVE MODE: {mode}
+STORY / CONCEPT:
+{user_prompt}
+
+VISUAL STYLE (separate from story — enforce strictly):
+{style}
+
+TARGET DURATION: ~{target_duration_sec:.0f} seconds
+SHOT BUDGET: exactly {shot_count} shots (~{per_shot:.1f}s each)
+RESOLUTION: 16:9 @ 24fps (single continuous take per shot)
+
+Each shot must include narration_line: ~one spoken sentence of professional narrator VO.
+Write narration as continuous spoken English that will be read aloud; do not describe camera in VO.
+"""
+
+        if mode == NarrativeMode.character.value:
+            return common_head + f"""
+JSON schema:
+{{
+  "title": "string",
+  "logline": "string",
+  "target_duration_sec": number,
+  "aspect_ratio": "16:9",
+  "narrative_mode": "{mode}",
+  "style_bible": "one dense paragraph locking look, lighting, materials, era",
+  "character_lock": "explicit character designs for continuity (summary)",
+  "characters": [
+    {{
+      "id": "C01",
+      "name": "character name",
+      "look": "face, hair, outfit, age, proportions — precise for lock",
+      "board_prompt": "identity for multi-view design sheet; plain studio bg; single character"
+    }}
+  ],
+  "color_grade": "string",
+  "audio_bed": "diegetic ambience notes",
+  "youtube_notes": "hook + retention",
+  "narration_script": "optional full VO string (else built from shot lines)",
+  "raw_director_notes": "anything else",
+  "shots": [
+    {{
+      "id": "S01",
+      "name": "short name",
+      "beat": "story function",
+      "duration_sec": {per_shot:.1f},
+      "visual_prompt": "full render prompt body (scene action)",
+      "camera": "lens / move",
+      "audio_notes": "string",
+      "character_presence": "who APPEARS / ABSENT",
+      "ref_character_ids": ["C01"],
+      "narration_line": "Spoken VO sentence for this shot"
+    }}
+  ]
+}}
+
+Characters: max 4. C01 = protagonist. Do not put full cast on every shot.
+Shot IDs S01..S{shot_count:02d}. visual_prompt detailed for a diffusion video model.
+"""
+
+        # Documentary & explainer share a lighter character schema
+        extra = (
+            "Documentary: focus on events, places, machines, crowds as mass. "
+            "Prefer characters: []. Historical figure allowed only if essential."
+            if mode == NarrativeMode.documentary.value
+            else
+            "Explainer: teach the concept with metaphors. Prefer characters: []. "
+            "Shots: hook → definition → mechanism → example → takeaway as fits the budget."
+        )
+        return common_head + f"""
+{extra}
+
+JSON schema:
+{{
+  "title": "string",
+  "logline": "string",
+  "target_duration_sec": number,
+  "aspect_ratio": "16:9",
+  "narrative_mode": "{mode}",
+  "style_bible": "dense paragraph locking look, lighting, materials, era/mood",
+  "character_lock": "empty or brief prop identity note",
+  "characters": [],
+  "color_grade": "string",
+  "audio_bed": "ambience only; narrator is separate",
+  "youtube_notes": "hook + clarity strategy",
+  "narration_script": "optional full VO",
+  "raw_director_notes": "anything else",
+  "shots": [
+    {{
+      "id": "S01",
+      "name": "short name",
+      "beat": "story / teaching function",
+      "duration_sec": {per_shot:.1f},
+      "visual_prompt": "full render prompt for the shot (no on-screen text)",
+      "camera": "lens / move",
+      "audio_notes": "diegetic only",
+      "character_presence": "what appears (places/objects/masses) — not a cast list",
+      "ref_character_ids": [],
+      "narration_line": "Spoken VO sentence for this shot"
+    }}
+  ]
+}}
+
+Shot IDs must be S01..S{shot_count:02d} in order. Keep ref_character_ids empty.
+visual_prompt detailed for a diffusion video model. No readable screen text.
+"""
 
     def build_render_prompt(
         self,
@@ -232,26 +351,26 @@ Make visual_prompt detailed enough for a diffusion video model.
         picture_meta: list[dict] | None = None,
         extra_picture_notes: list[str] | None = None,
     ) -> str:
+        mode = normalize_narrative_mode(getattr(plan, "narrative_mode", None) or "character")
         on_ids, off_chars = _cast_split_for_shot(plan, shot, picture_meta, picture_map)
         parts: list[str] = []
 
-        # Hard exclusivity FIRST so the model prioritizes it over story leakage
-        exclusivity = _exclusivity_block(plan, on_ids, off_chars)
-        if exclusivity:
-            parts.append(exclusivity)
+        if mode == NarrativeMode.character.value or plan.characters:
+            exclusivity = _exclusivity_block(plan, on_ids, off_chars)
+            if exclusivity:
+                parts.append(exclusivity)
 
         if r2v and (picture_meta or picture_map):
             id_lines: list[str] = []
             if picture_meta:
                 for m in picture_meta:
                     pic = m.get("picture")
-                    name = m.get("name") or m.get("character_id") or "Character"
+                    name = m.get("name") or m.get("character_id") or "Subject"
                     pose = m.get("label") or m.get("pose_id") or "view"
                     look = (m.get("look") or "")[:160]
                     id_lines.append(
                         f"- <Picture {pic}>: {name} — {pose} reference. "
-                        f"Match face, hair, outfit, proportions exactly; "
-                        f"do not copy this reference pose/camera. {look}"
+                        f"Match identity exactly; do not copy this reference pose/camera. {look}"
                     )
             elif picture_map:
                 for cid, pic in sorted(picture_map.items(), key=lambda kv: kv[1]):
@@ -260,31 +379,41 @@ Make visual_prompt detailed enough for a diffusion video model.
                     look = (char.look if char else "")[:180]
                     id_lines.append(
                         f"- {label} identity is <Picture {pic}> "
-                        f"(match face, hair, outfit exactly; do not copy the reference pose). {look}"
+                        f"(match exactly; do not copy the reference pose). {look}"
                     )
             if id_lines:
                 parts.append(
-                    "REFERENCE IDENTITY LOCK (MiniMax H3 R2V multi-view sheet — follow precisely):\n"
-                    "These images are ONLY identity for characters already allowed ON SCREEN.\n"
-                    "Do not invent additional cast because other names appear in the story.\n"
-                    + "\n".join(id_lines)
+                    "REFERENCE IDENTITY LOCK (MiniMax H3 R2V):\n" + "\n".join(id_lines)
                 )
             if extra_picture_notes:
                 parts.append("ADDITIONAL REFS:\n" + "\n".join(extra_picture_notes))
 
-        # Shot-scoped look lock — do NOT paste full-cast character_lock (it causes leakage)
-        lock_lines = _on_screen_look_lock(plan, on_ids)
+        if mode == NarrativeMode.character.value or on_ids:
+            lock_lines = _on_screen_look_lock(plan, on_ids)
+        else:
+            lock_lines = (
+                "CONTINUITY: Keep era, materials, palette, and metaphor world consistent with style bible. "
+                "No invented named main character unless prompted."
+            )
+
+        mode_note = {
+            NarrativeMode.documentary.value: "Documentary continuous take — historical / event feel.",
+            NarrativeMode.explainer.value: "Educational explainer metaphor shot — concept clarity first.",
+            NarrativeMode.character.value: "Narrative fiction continuous take.",
+        }.get(mode, "")
+
         parts.extend(
             [
                 plan.style_bible.strip(),
                 lock_lines,
                 f"COLOR GRADE: {plan.color_grade}".strip() if plan.color_grade else "",
                 f"AUDIO: {plan.audio_bed}. Shot audio: {shot.audio_notes}".strip(),
+                mode_note,
                 f"SHOT {shot.id} — {shot.name}. Story beat: {shot.beat}.",
-                f"CHARACTER PRESENCE: {shot.character_presence}" if shot.character_presence else "",
+                f"PRESENCE: {shot.character_presence}" if shot.character_presence else "",
                 f"CAMERA: {shot.camera}" if shot.camera else "",
                 shot.visual_prompt.strip(),
-                "Single continuous animated/cinematic shot. No on-screen text, logos, subtitles, watermarks.",
+                "Single continuous cinematic shot. No on-screen text, logos, subtitles, watermarks.",
             ]
         )
         if critic_notes:
@@ -319,8 +448,8 @@ def _cast_split_for_shot(
 def _on_screen_look_lock(plan: ProductionPlan, on_ids: list[str]) -> str:
     if not on_ids:
         return (
-            "CHARACTER LOCK (this take): No living cast members. "
-            "Empty set / props only — do not invent story characters."
+            "CHARACTER LOCK (this take): No living cast members from a character board. "
+            "Focus on environment / props / masses only."
         )
     lines = [
         "CHARACTER LOCK (this take ONLY — ignore other cast not listed here):",
@@ -362,8 +491,7 @@ def _exclusivity_block(
         lines.append(
             f"BANNED this take — must not appear in ANY form: {ban}. "
             "No faces, bodies, silhouettes, shadows cast by them, "
-            "watchers in windows, background cameos, plush stand-ins, or crowd fillers. "
-            "If the story setup mentions their home/items, show empty furniture and set dressing only."
+            "watchers in windows, background cameos, plush stand-ins, or crowd fillers."
         )
     lines.append(
         "Violation of bans is a failed take. Prefer empty space over inventing banned cast."
@@ -377,13 +505,16 @@ def enforce_character_presence_text(
     existing: str = "",
 ) -> str:
     """Rewrite/augment presence so absent cast is named explicitly."""
+    if not plan.characters:
+        base = (existing or "").strip()
+        return base or "No named character cast — environment, props, or mass figures only."
+
     by_id = {c.id: c for c in plan.characters or []}
     on_names = [by_id[i].name for i in ref_ids if i in by_id]
     off = [c for c in (plan.characters or []) if c.id not in set(ref_ids)]
     off_names = [c.name for c in off]
 
     base = (existing or "").strip()
-    # Drop previously auto-appended APPEARS/ABSENT blocks if re-normalizing
     for marker in ("APPEARS:", "ABSENT (do not show):"):
         if marker in base:
             base = base.split(marker)[0].strip(" .;")
@@ -405,8 +536,6 @@ def enforce_character_presence_text(
 
 def normalize_plan_cast_presence(plan: ProductionPlan) -> ProductionPlan:
     """Recompute character_presence bans from ref_character_ids (safe on resume)."""
-    if not plan.characters:
-        return plan
     for shot in plan.shots or []:
         refs = list(shot.ref_character_ids or [])
         shot.character_presence = enforce_character_presence_text(

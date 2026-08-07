@@ -16,20 +16,50 @@ from .character_board import CharacterBoardBuilder, ensure_character_designs
 from .comfy_h3 import ComfyError, ComfyH3Client
 from .config import Settings, get_settings
 from .job_control import CancelledError, JobControl
-from .media import assemble_master, extract_frames, probe
+from .media import assemble_master, extract_frames, probe, mux_narration
 from .models import (
     GenerateRequest,
+    NarrativeMode,
     ProductionPlan,
     ProjectState,
     ResumeRequest,
     ShotPlan,
     ShotRecord,
     ShotStatus,
+    StageTiming,
     CriticVerdict,
+    normalize_narrative_mode,
 )
 from .services import ensure_runtime_services, comfy_reachable
 
 LogFn = Callable[[str], None]
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso_now() -> str:
+    return _utc_now().isoformat()
+
+
+def _parse_iso(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _elapsed_sec(started: str | None, ended: str | None = None) -> float | None:
+    a = _parse_iso(started)
+    if not a:
+        return None
+    b = _parse_iso(ended) if ended else _utc_now()
+    if not b:
+        return None
+    return round(max(0.0, (b - a).total_seconds()), 2)
 
 
 class ProductionPipeline:
@@ -78,14 +108,180 @@ class ProductionPipeline:
             log(line)
         self._save_state(state)
 
+    def _sync_character_stage_rows(self, state: ProjectState) -> None:
+        """Mirror finalized character sheet timings into the stage table."""
+        plan = state.plan
+        if not plan or not plan.characters:
+            return
+        for c in plan.characters:
+            key = f"char:{c.id}"
+            label = f"Sheet · {c.name}"
+            row = self._stage_get(state, key)
+            if row is None:
+                row = StageTiming(key=key, label=label)
+                # Insert after character_sheets block if present
+                cs_i = next(
+                    (i for i, r in enumerate(state.stage_timings) if r.key == "character_sheets"),
+                    None,
+                )
+                if cs_i is not None:
+                    # keep chars grouped after character_sheets, before shots
+                    insert_at = cs_i + 1
+                    while (
+                        insert_at < len(state.stage_timings)
+                        and state.stage_timings[insert_at].key.startswith("char:")
+                    ):
+                        insert_at += 1
+                    state.stage_timings.insert(insert_at, row)
+                else:
+                    state.stage_timings.append(row)
+            row.label = label
+            row.started_at = c.sheet_started_at or row.started_at or ""
+            row.ended_at = c.sheet_finished_at
+            row.duration_sec = c.sheet_duration_sec
+            st = (c.sheet_status or "pending").lower()
+            if st == "ready":
+                row.status = "done"
+            elif st == "building":
+                row.status = "running"
+                if row.started_at:
+                    row.duration_sec = _elapsed_sec(row.started_at, None)
+            elif st == "failed":
+                row.status = "error"
+            else:
+                row.status = st if st in ("pending", "skipped") else "pending"
+            poses = sum(1 for p in (c.sheet or []) if p.image_path)
+            row.detail = (
+                f"{poses} view(s)"
+                + (f" · {c.sheet_source}" if c.sheet_source else "")
+            )
+        self._save_state(state)
+
+    def _stage_get(self, state: ProjectState, key: str) -> StageTiming | None:
+        for row in state.stage_timings:
+            if row.key == key:
+                return row
+        return None
+
+    def _stage_start(
+        self,
+        state: ProjectState,
+        key: str,
+        label: str,
+        *,
+        detail: str = "",
+        log: LogFn | None = None,
+        silent: bool = False,
+    ) -> StageTiming:
+        now = _iso_now()
+        row = self._stage_get(state, key)
+        if row is None:
+            row = StageTiming(key=key, label=label)
+            state.stage_timings.append(row)
+        row.label = label
+        row.started_at = now
+        row.ended_at = None
+        row.duration_sec = None
+        row.status = "running"
+        if detail:
+            row.detail = detail
+        if not silent:
+            self._save_state(state)
+        return row
+
+    def _stage_end(
+        self,
+        state: ProjectState,
+        key: str,
+        *,
+        status: str = "done",
+        detail: str | None = None,
+        log: LogFn | None = None,
+        silent: bool = False,
+    ) -> StageTiming | None:
+        row = self._stage_get(state, key)
+        if row is None:
+            return None
+        if row.status == "running" or row.ended_at is None:
+            row.ended_at = _iso_now()
+            row.duration_sec = _elapsed_sec(row.started_at, row.ended_at)
+        row.status = status
+        if detail is not None:
+            row.detail = detail
+        if not silent:
+            self._save_state(state)
+        return row
+
+    def _stage_skip(
+        self,
+        state: ProjectState,
+        key: str,
+        label: str,
+        *,
+        detail: str = "",
+    ) -> None:
+        row = self._stage_get(state, key)
+        if row is None:
+            row = StageTiming(key=key, label=label)
+            state.stage_timings.append(row)
+        row.label = label
+        row.status = "skipped"
+        row.detail = detail or row.detail
+        if not row.started_at:
+            row.started_at = _iso_now()
+        if not row.ended_at:
+            row.ended_at = row.started_at
+            row.duration_sec = 0.0
+        self._save_state(state)
+
+    def _stage_bump_running(self, state: ProjectState) -> None:
+        """Refresh elapsed seconds on open stages (for UI polling)."""
+        for row in state.stage_timings:
+            if row.status == "running" and row.started_at:
+                row.duration_sec = _elapsed_sec(row.started_at, None)
+        total = self._stage_get(state, "total")
+        if total and total.status == "running" and state.job_started_at:
+            total.duration_sec = _elapsed_sec(state.job_started_at, None)
+
+    def _finalize_job_clock(self, state: ProjectState, *, status: str | None = None) -> None:
+        state.job_finished_at = _iso_now()
+        for row in state.stage_timings:
+            if row.status == "running":
+                row.ended_at = state.job_finished_at
+                row.duration_sec = _elapsed_sec(row.started_at, row.ended_at)
+                if status in ("error", "cancelled", "failed"):
+                    row.status = status if status != "failed" else "error"
+                else:
+                    row.status = "done"
+        total = self._stage_get(state, "total")
+        if total:
+            total.ended_at = state.job_finished_at
+            total.duration_sec = _elapsed_sec(
+                state.job_started_at or total.started_at or state.created_at,
+                total.ended_at,
+            )
+            total.status = "done" if (status or state.status or "").startswith("completed") else (
+                status or total.status or "done"
+            )
+            if total.status == "failed":
+                total.status = "error"
+        self._save_state(state)
+
     def plan_only(
         self,
         prompt: str,
         style: str,
         target_duration_sec: float = 60.0,
         max_shots: int = 12,
+        narrative_mode: str = "character",
     ) -> ProductionPlan:
-        return self.director.plan(prompt, style, target_duration_sec, max_shots)
+        return self.director.plan(
+            prompt,
+            style,
+            target_duration_sec,
+            max_shots,
+            narrative_mode=narrative_mode,
+        )
 
     def run(
         self,
@@ -94,12 +290,22 @@ class ProductionPipeline:
         on_start: Callable[[str], None] | None = None,
     ) -> ProjectState:
         project_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+        started = _iso_now()
         state = ProjectState(
             project_id=project_id,
             user_prompt=req.prompt,
             style=req.style,
             status="planning",
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=started,
+            job_started_at=started,
+            stage_timings=[
+                StageTiming(
+                    key="total",
+                    label="Total job",
+                    started_at=started,
+                    status="running",
+                )
+            ],
         )
         root = self._project_dir(project_id)
         self._save_state(state)
@@ -112,41 +318,70 @@ class ProductionPipeline:
                 pass
 
         try:
+            self._stage_start(state, "essentials", "Essentials (Comfy / Ollama / FFmpeg)", silent=True)
             self._ensure_services(state, log)
+            self._stage_end(state, "essentials", detail="ready")
             try:
                 self.comfy.health()
             except Exception as e:
                 state.status = "error"
+                self._stage_end(state, "essentials", status="error", detail=str(e)[:120])
                 self._log(state, f"ComfyUI not reachable at {self.settings.comfy_base_url}: {e}", log)
+                self._finalize_job_clock(state, status="error")
                 return state
 
             self._check_cancel()
             # Rebind agent logs for this run so fallback attempts show in job output.
             self.director = DirectorAgent(self.settings, log=lambda m: self._log(state, m, log))
             self.critic = CriticAgent(self.settings, log=lambda m: self._log(state, m, log))
+            self.voice = VoiceAgent(self.settings, log=lambda m: self._log(state, m, log))
+
+            narr_mode = normalize_narrative_mode(req.narrative_mode)
+            state.narrative_mode = narr_mode
 
             mode = (req.h3_mode or self.settings.h3_mode or "r2v").lower()
             if mode not in ("r2v", "t2v", "auto"):
                 mode = "r2v"
+            # Documentary / explainer default to text-to-video (no cast sheets)
+            if narr_mode in (
+                NarrativeMode.documentary.value,
+                NarrativeMode.explainer.value,
+            ) and req.h3_mode is None:
+                mode = "t2v"
             state.h3_mode = mode
 
-            self._log(state, "Director: building production plan (Gemini → local → offline)…", log)
+            self._stage_start(state, "director", f"Director plan ({narr_mode})")
+            self._log(
+                state,
+                f"Director: building production plan · narrative_mode={narr_mode} "
+                f"(Gemini → local → offline)…",
+                log,
+            )
             plan = self.director.plan(
                 req.prompt,
                 req.style,
                 target_duration_sec=req.target_duration_sec,
                 max_shots=req.max_shots,
+                narrative_mode=narr_mode,
             )
             plan = normalize_plan_cast_presence(plan)
             self._check_cancel()
             state.plan = plan
             state.shots = [ShotRecord(plan=s) for s in plan.shots]
             (root / "production.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
+            self._stage_end(
+                state,
+                "director",
+                detail=(
+                    f"{plan.title} — {len(plan.shots)} shots · {narr_mode} via "
+                    f"{self.director.last_provider or 'unknown'}"
+                ),
+            )
             self._log(
                 state,
                 f"Plan ready via {self.director.last_provider or 'unknown'}: "
                 f"“{plan.title}” — {len(plan.shots)} shots, "
-                f"~{plan.target_duration_sec:.0f}s · H3 mode={mode}",
+                f"~{plan.target_duration_sec:.0f}s · narrative={narr_mode} · H3 mode={mode}",
                 log,
             )
 
@@ -158,8 +393,15 @@ class ProductionPipeline:
                 board_dir,
                 log=lambda m: self._log(state, m, log),
                 comfy=self.comfy,
+                on_character_done=lambda _c: self._sync_character_stage_rows(state),
             )
-            if mode in ("r2v", "auto"):
+            need_sheets = (
+                narr_mode == NarrativeMode.character.value
+                and mode in ("r2v", "auto")
+                and bool(plan.characters)
+            )
+            if need_sheets:
+                self._stage_start(state, "character_sheets", "Character sheets")
                 self._log(
                     state,
                     "Building multi-view character sheets for R2V "
@@ -167,8 +409,35 @@ class ProductionPipeline:
                     log,
                 )
                 board.build(plan)
+                self._sync_character_stage_rows(state)
                 (root / "production.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
+                ready = sum(
+                    1
+                    for c in plan.characters or []
+                    if (c.sheet_status or "") == "ready" or c.image_path
+                )
+                sheet_times = [
+                    f"{c.name}={c.sheet_duration_sec:.1f}s"
+                    for c in (plan.characters or [])
+                    if c.sheet_duration_sec is not None
+                ]
+                detail = f"{ready}/{len(plan.characters or [])} cast ready"
+                if sheet_times:
+                    detail += " · " + ", ".join(sheet_times)
+                self._stage_end(state, "character_sheets", detail=detail)
                 self._save_state(state)
+            else:
+                reason = (
+                    f"skipped ({narr_mode} mode / H3={mode})"
+                    if narr_mode != NarrativeMode.character.value
+                    else "skipped (t2v or no cast)"
+                )
+                self._stage_skip(
+                    state,
+                    "character_sheets",
+                    "Character sheets",
+                    detail=reason,
+                )
 
             max_retakes = req.max_retakes if req.max_retakes is not None else self.settings.max_retakes
             self._render_remaining_shots(
@@ -180,6 +449,7 @@ class ProductionPipeline:
                 auto_assemble=req.auto_assemble,
                 log=log,
             )
+            self._finalize_job_clock(state, status=state.status)
 
         except CancelledError:
             state.status = "cancelled"
@@ -188,10 +458,12 @@ class ProductionPipeline:
             except Exception:
                 pass
             self._log(state, "Generation stopped by user.", log)
+            self._finalize_job_clock(state, status="cancelled")
         except Exception as e:
             state.status = "error"
             self._log(state, f"Pipeline error: {e}", log)
             self._log(state, traceback.format_exc()[-1500:], log)
+            self._finalize_job_clock(state, status="error")
 
         self._save_state(state)
         return state
@@ -228,25 +500,66 @@ class ProductionPipeline:
                 rebuilt.append(by_id.get(s.id) or ShotRecord(plan=s))
             state.shots = rebuilt
 
+        if not state.job_started_at:
+            state.job_started_at = state.created_at or _iso_now()
+        state.job_finished_at = None
+        if not self._stage_get(state, "total"):
+            state.stage_timings.insert(
+                0,
+                StageTiming(
+                    key="total",
+                    label="Total job",
+                    started_at=state.job_started_at,
+                    status="running",
+                    detail="resumed",
+                ),
+            )
+        else:
+            total = self._stage_get(state, "total")
+            if total:
+                total.status = "running"
+                total.ended_at = None
+                total.detail = (total.detail + " · resumed").strip(" ·")
+
         try:
+            self._stage_start(state, "essentials", "Essentials (Comfy / Ollama / FFmpeg)", silent=True)
             self._ensure_services(state, log)
+            self._stage_end(state, "essentials", detail="ready")
             try:
                 self.comfy.health()
             except Exception as e:
                 state.status = "error"
+                self._stage_end(state, "essentials", status="error", detail=str(e)[:120])
                 self._log(state, f"ComfyUI not reachable at {self.settings.comfy_base_url}: {e}", log)
+                self._finalize_job_clock(state, status="error")
                 return state
 
             self._check_cancel()
             self.director = DirectorAgent(self.settings, log=lambda m: self._log(state, m, log))
             self.critic = CriticAgent(self.settings, log=lambda m: self._log(state, m, log))
+            self.voice = VoiceAgent(self.settings, log=lambda m: self._log(state, m, log))
+
+            if req.narrative_mode:
+                state.narrative_mode = normalize_narrative_mode(req.narrative_mode)
+            elif state.plan and getattr(state.plan, "narrative_mode", None):
+                state.narrative_mode = normalize_narrative_mode(state.plan.narrative_mode)
+            narr_mode = normalize_narrative_mode(state.narrative_mode)
 
             mode = (req.h3_mode or state.h3_mode or self.settings.h3_mode or "r2v").lower()
             if mode not in ("r2v", "t2v", "auto"):
                 mode = "r2v"
+            if (
+                narr_mode
+                in (NarrativeMode.documentary.value, NarrativeMode.explainer.value)
+                and req.h3_mode is None
+                and not state.h3_mode
+            ):
+                mode = "t2v"
             state.h3_mode = mode
             if state.plan:
+                state.plan.narrative_mode = narr_mode
                 state.plan = normalize_plan_cast_presence(state.plan)
+            if state.plan:
                 # Keep shot records in sync with rewritten presence on the plan
                 plan_by_id = {s.id: s for s in state.plan.shots}
                 for rec in state.shots or []:
@@ -299,11 +612,36 @@ class ProductionPipeline:
                 board_dir,
                 log=lambda m: self._log(state, m, log),
                 comfy=self.comfy,
+                on_character_done=lambda _c: self._sync_character_stage_rows(state),
             )
-            if mode in ("r2v", "auto"):
+            need_sheets = (
+                narr_mode == NarrativeMode.character.value
+                and mode in ("r2v", "auto")
+                and bool(plan and plan.characters)
+            )
+            if need_sheets:
+                self._stage_start(state, "character_sheets", "Character sheets (refresh)")
                 self._log(state, "Refreshing character sheets (reuse existing stills)…", log)
                 board.build(plan)
+                self._sync_character_stage_rows(state)
                 (root / "production.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
+                ready = sum(
+                    1
+                    for c in plan.characters or []
+                    if (c.sheet_status or "") == "ready" or c.image_path
+                )
+                self._stage_end(
+                    state,
+                    "character_sheets",
+                    detail=f"{ready}/{len(plan.characters or [])} cast",
+                )
+            else:
+                self._stage_skip(
+                    state,
+                    "character_sheets",
+                    "Character sheets",
+                    detail=f"skipped ({narr_mode} / H3={mode})",
+                )
 
             # Reset non-passed shots so they re-queue
             for record in state.shots:
@@ -335,6 +673,7 @@ class ProductionPipeline:
                 auto_assemble=req.auto_assemble,
                 log=log,
             )
+            self._finalize_job_clock(state, status=state.status)
 
         except CancelledError:
             state.status = "cancelled"
@@ -343,10 +682,12 @@ class ProductionPipeline:
             except Exception:
                 pass
             self._log(state, "Generation stopped by user.", log)
+            self._finalize_job_clock(state, status="cancelled")
         except Exception as e:
             state.status = "error"
             self._log(state, f"Pipeline error: {e}", log)
             self._log(state, traceback.format_exc()[-1500:], log)
+            self._finalize_job_clock(state, status="error")
 
         self._save_state(state)
         return state
@@ -437,8 +778,36 @@ class ProductionPipeline:
         last_frame: Path | None = None
         last_ref_ids: list[str] | None = None
 
+        remaining = [
+            r
+            for r in state.shots
+            if not (
+                r.status == ShotStatus.passed
+                and r.final_video
+                and Path(r.final_video).exists()
+            )
+            and r.status != ShotStatus.failed
+        ]
+        if remaining:
+            self._stage_start(
+                state,
+                "shots",
+                "Shot generation + critic",
+                detail=f"{len(remaining)} shot(s) remaining",
+            )
+        else:
+            self._stage_skip(
+                state,
+                "shots",
+                "Shot generation + critic",
+                detail="all shots already passed",
+            )
+
+        aborted_on_shot_fail = False
+        abort_shot_id = ""
         for idx, record in enumerate(state.shots):
             self._check_cancel()
+            self._stage_bump_running(state)
             if (
                 record.status == ShotStatus.passed
                 and record.final_video
@@ -468,10 +837,91 @@ class ProductionPipeline:
             ) or last_frame
             last_ref_ids = list(record.plan.ref_character_ids or [])
 
+            # Exhausting retakes (or hard gen failure) ends the whole job —
+            # later shots cannot recover continuity / product quality.
+            if record.status == ShotStatus.failed:
+                aborted_on_shot_fail = True
+                abort_shot_id = record.plan.id if record.plan else f"shot{idx}"
+                err = (record.error or "shot failed").strip()
+                self._log(
+                    state,
+                    f"Aborting job: {abort_shot_id} failed after all retakes "
+                    f"({max_retakes + 1} take budget) — {err[:200]}",
+                    log,
+                )
+                skipped = 0
+                for later in state.shots[idx + 1 :]:
+                    if later.status in (ShotStatus.passed, ShotStatus.failed):
+                        continue
+                    if (
+                        later.status == ShotStatus.passed
+                        and later.final_video
+                        and Path(later.final_video).exists()
+                    ):
+                        continue
+                    later.status = ShotStatus.skipped
+                    later.error = f"Aborted: {abort_shot_id} failed"
+                    skipped += 1
+                if skipped:
+                    self._log(
+                        state,
+                        f"Skipped {skipped} remaining shot(s) after {abort_shot_id} failed.",
+                        log,
+                    )
+                break
+
+        if remaining:
+            passed_n = sum(
+                1
+                for r in state.shots
+                if r.status == ShotStatus.passed and r.final_video
+            )
+            self._stage_end(
+                state,
+                "shots",
+                status="error" if aborted_on_shot_fail else "done",
+                detail=(
+                    f"aborted on {abort_shot_id} · {passed_n}/{len(state.shots)} passed"
+                    if aborted_on_shot_fail
+                    else f"{passed_n}/{len(state.shots)} passed"
+                ),
+            )
+
+        if aborted_on_shot_fail:
+            state.status = "failed"
+            self._stage_skip(
+                state,
+                "assemble",
+                "Assemble master",
+                detail=f"aborted: {abort_shot_id} failed",
+            )
+            self._stage_skip(
+                state,
+                "narration",
+                "ElevenLabs narration",
+                detail="aborted after shot failure",
+            )
+            self._log(
+                state,
+                f"Job failed — {abort_shot_id} exhausted retakes; no further shots or master.",
+                log,
+            )
+            if not self.voice.enabled:
+                self._log(state, "Voice/narration skipped (ENABLE_VOICE=false).", log)
+            return
+
         self._check_cancel()
         passed = [r for r in state.shots if r.status == ShotStatus.passed and r.final_video]
+        narr_mode = normalize_narrative_mode(
+            state.narrative_mode or getattr(plan, "narrative_mode", None) or "character"
+        )
+        add_cards = (
+            narr_mode == NarrativeMode.character.value
+            and float(plan.target_duration_sec or 0) >= 40
+        )
         if auto_assemble and passed:
             state.status = "assembling"
+            self._stage_start(state, "assemble", "Assemble master")
             self._log(state, f"Assembling master from {len(passed)} passed shots…", log)
             clips = [Path(r.final_video) for r in passed if r.final_video]
             master = self._project_dir(state.project_id) / "master" / f"{_safe(plan.title)}.mp4"
@@ -481,21 +931,93 @@ class ProductionPipeline:
                 master,
                 title=plan.title,
                 subtitle=plan.logline[:80] if plan.logline else state.style[:60],
-                add_cards=True,
+                add_cards=add_cards,
             )
             state.master_path = str(master)
             self._log(state, f"Master ready: {master}", log)
+            self._stage_end(state, "assemble", detail=Path(master).name)
+
+            # Documentary-style narration under the master (all modes when voice enabled)
+            if self.voice.enabled and plan:
+                try:
+                    self._stage_start(state, "narration", "ElevenLabs narration")
+                    self.voice = VoiceAgent(
+                        self.settings, log=lambda m: self._log(state, m, log)
+                    )
+                    narr_path = (
+                        self._project_dir(state.project_id) / "master" / "narration.mp3"
+                    )
+                    audio, script = self.voice.narrate_plan(plan, narr_path)
+                    if audio and audio.exists():
+                        state.narration_path = str(audio)
+                        vo_master = (
+                            self._project_dir(state.project_id)
+                            / "master"
+                            / f"{_safe(plan.title)}_narrated.mp4"
+                        )
+                        mux_narration(self.settings, master, audio, vo_master)
+                        state.master_path = str(vo_master)
+                        self._log(
+                            state,
+                            f"Narration mixed: {vo_master.name} "
+                            f"(script ~{len(script)} chars)",
+                            log,
+                        )
+                        self._stage_end(
+                            state,
+                            "narration",
+                            detail=vo_master.name,
+                        )
+                    else:
+                        self._stage_end(
+                            state,
+                            "narration",
+                            status="skipped",
+                            detail="no audio synthesized",
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    self._log(state, f"Narration failed (master kept without VO): {exc}", log)
+                    self._stage_end(
+                        state,
+                        "narration",
+                        status="error",
+                        detail=str(exc)[:120],
+                    )
+            else:
+                self._stage_skip(
+                    state,
+                    "narration",
+                    "ElevenLabs narration",
+                    detail="voice disabled or no plan",
+                )
+
             state.status = "completed"
         elif not passed:
             state.status = "failed"
+            self._stage_skip(state, "assemble", "Assemble master", detail="no passed shots")
             self._log(state, "No shots passed critic — no master assembled.", log)
         else:
             state.status = "completed_no_assemble"
+            self._stage_skip(state, "assemble", "Assemble master", detail="auto_assemble=false")
 
-        if self.voice.enabled:
-            self._log(state, "Voice enabled but not implemented in this build.", log)
-        else:
-            self._log(state, "Voice/narration skipped (ElevenLabs disabled).", log)
+        if not self.voice.enabled:
+            self._log(state, "Voice/narration skipped (ENABLE_VOICE=false).", log)
+
+    def _finish_shot_timing(
+        self,
+        state: ProjectState,
+        record: ShotRecord,
+        shot_key: str,
+        *,
+        status: str = "done",
+        detail: str = "",
+    ) -> None:
+        record.finished_at = _iso_now()
+        record.duration_sec = _elapsed_sec(record.started_at, record.finished_at)
+        det = detail
+        if record.duration_sec is not None:
+            det = (det + f" · {record.duration_sec:.1f}s").strip(" ·")
+        self._stage_end(state, shot_key, status=status, detail=det)
 
     def _produce_shot(
         self,
@@ -522,10 +1044,24 @@ class ProductionPipeline:
         visual_override = shot.visual_prompt
         accepted_frame: Path | None = None
 
+        shot_key = f"shot:{shot.id}"
+        record.started_at = _iso_now()
+        record.finished_at = None
+        record.duration_sec = None
+        self._stage_start(
+            state,
+            shot_key,
+            f"Shot {shot.id} — {shot.name}",
+            detail=f"up to {max_retakes + 1} take(s)",
+            silent=True,
+        )
+        state.status = "running"
+
         for take in range(1, max_retakes + 2):  # initial + retakes
             if self.control:
                 self.control.check()
             record.status = ShotStatus.generating
+            self._stage_bump_running(state)
             seed = seed_base + idx * 17 + take * 3
 
             shot_for_prompt = shot.model_copy(update={"visual_prompt": visual_override})
@@ -609,11 +1145,17 @@ class ProductionPipeline:
                         record.status = ShotStatus.failed
                         record.error = str(e2)
                         self._log(state, f"{shot.id} generation failed: {e2}", log)
+                        self._finish_shot_timing(
+                            state, record, shot_key, status="error", detail=str(e2)[:80]
+                        )
                         return accepted_frame
                 else:
                     record.status = ShotStatus.failed
                     record.error = str(e)
                     self._log(state, f"{shot.id} generation failed: {e}", log)
+                    self._finish_shot_timing(
+                        state, record, shot_key, status="error", detail=str(e)[:80]
+                    )
                     return accepted_frame
 
             dest = take_dir / f"{shot.id}_take{take}.mp4"
@@ -712,6 +1254,12 @@ class ProductionPipeline:
                     except Exception as exc:  # noqa: BLE001
                         self._log(state, f"Sheet enrich skipped: {exc}", log)
                 self._log(state, f"{shot.id} PASSED — keep take {take} ({used_mode})", log)
+                self._finish_shot_timing(
+                    state,
+                    record,
+                    shot_key,
+                    detail=f"PASSED take {take}",
+                )
                 return accepted_frame
 
             if take > max_retakes or (review.verdict == CriticVerdict.reject and take > max_retakes):
@@ -722,26 +1270,43 @@ class ProductionPipeline:
                     record.final_video = str(final)
                     record.final_frame = best.get("frame")
                     record.status = ShotStatus.passed
-                    if best.get("frame"):
-                        accepted_frame = Path(best["frame"])
+                    accepted_frame = Path(best["frame"]) if best.get("frame") else None
                     self._log(
                         state,
-                        f"{shot.id} accepted best effort take {best['take']} "
-                        f"(score={best.get('score')}) after max retakes",
+                        f"{shot.id} kept best take (score={best.get('score')}) after retakes",
                         log,
+                    )
+                    self._finish_shot_timing(
+                        state,
+                        record,
+                        shot_key,
+                        detail=f"best-of after {take} takes",
                     )
                     return accepted_frame
                 record.status = ShotStatus.failed
-                record.error = review.summary or "Failed critic after retakes"
-                self._log(state, f"{shot.id} failed after retakes", log)
+                record.error = review.retake_instructions or review.summary
+                self._log(state, f"{shot.id} FAILED after {take} take(s)", log)
+                self._finish_shot_timing(
+                    state,
+                    record,
+                    shot_key,
+                    status="error",
+                    detail=f"failed after {take} take(s)",
+                )
                 return accepted_frame
 
-            record.status = ShotStatus.retake
             critic_notes = review.retake_instructions or review.summary
-            if review.revised_prompt:
-                visual_override = review.revised_prompt
-            self._log(state, f"{shot.id} RETAKE ordered: {critic_notes[:200]}", log)
+            visual_override = review.revised_prompt or visual_override
+            record.status = ShotStatus.retake
+            self._log(
+                state,
+                f"{shot.id} RETAKE ordered: {critic_notes[:200]}",
+                log,
+            )
 
+        self._finish_shot_timing(
+            state, record, shot_key, status="error", detail="exhausted takes"
+        )
         return accepted_frame
 
     def _resolve_refs(

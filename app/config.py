@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     default_length_frames: int = Field(default=124, alias="DEFAULT_LENGTH_FRAMES")
     max_retakes: int = Field(default=2, alias="MAX_RETAKES")
     critic_pass_threshold: float = Field(default=7.5, alias="CRITIC_PASS_THRESHOLD")
+    # How many generation jobs may run at once (1 = serial queue; raise carefully on VRAM)
+    max_parallel_jobs: int = Field(default=1, alias="MAX_PARALLEL_JOBS", ge=1, le=8)
 
     # Local OpenAI-compatible server (Ollama default port, also works with LM Studio :1234)
     local_llm_enabled: bool = Field(default=True, alias="LOCAL_LLM_ENABLED")
@@ -105,8 +107,18 @@ class Settings(BaseSettings):
     host: str = Field(default="127.0.0.1", alias="HOST")
     port: int = Field(default=7860, alias="PORT")
 
-    # Voice disabled for now (ElevenLabs stubbed)
-    enable_voice: bool = Field(default=False, alias="ENABLE_VOICE")
+    # Voice / ElevenLabs narration (documentary-style VO for all narrative modes when enabled)
+    enable_voice: bool = Field(default=True, alias="ENABLE_VOICE")
+    elevenlabs_model_id: str = Field(
+        default="eleven_multilingual_v2",
+        alias="ELEVENLABS_MODEL_ID",
+    )
+    elevenlabs_stability: float = Field(default=0.45, alias="ELEVENLABS_STABILITY")
+    elevenlabs_similarity: float = Field(default=0.75, alias="ELEVENLABS_SIMILARITY")
+    elevenlabs_timeout_sec: int = Field(default=120, alias="ELEVENLABS_TIMEOUT_SEC")
+    # Lower ambient under VO (0–1 scale factor on original clip audio)
+    narration_ambient_mix: float = Field(default=0.22, alias="NARRATION_AMBIENT_MIX")
+    narration_voice_gain: float = Field(default=1.0, alias="NARRATION_VOICE_GAIN")
 
     # Auto-launch local deps when generate / resume starts
     auto_start_comfy: bool = Field(default=True, alias="AUTO_START_COMFY")

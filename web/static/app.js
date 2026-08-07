@@ -24,14 +24,21 @@ function setLogLines(lines) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function setBusy(busy) {
-  $("btn-run").disabled = busy;
-  $("btn-plan").disabled = busy;
+function setBusy(busy, { keepGenerate = false } = {}) {
+  // Generate stays available so more jobs can be queued while others run.
+  $("btn-run").disabled = keepGenerate ? false : busy;
+  $("btn-plan").disabled = busy && !keepGenerate;
   const stop = $("btn-stop");
   if (stop) stop.disabled = !busy;
 }
 
 function isLiveStatus(status) {
+  return ["running", "planning", "assembling", "generating", "reviewing", "cancelling", "queued"].includes(
+    String(status || "").toLowerCase()
+  );
+}
+
+function isWorkerLiveStatus(status) {
   return ["running", "planning", "assembling", "generating", "reviewing", "cancelling"].includes(
     String(status || "").toLowerCase()
   );
@@ -69,6 +76,139 @@ function clearSession() {
   }
 }
 
+function boardFileUrl(projectId, relOrAbs) {
+  if (!projectId || !relOrAbs || String(projectId).startsWith("pending_")) return null;
+  const norm = String(relOrAbs).replace(/\\/g, "/");
+  let rel = norm;
+  const marker = "character_board/";
+  const idx = norm.toLowerCase().indexOf(marker);
+  if (idx >= 0) {
+    rel = norm.slice(idx);
+  } else if (!norm.includes("/")) {
+    rel = "character_board/" + norm;
+  } else {
+    const base = norm.split("/").pop();
+    if (!base) return null;
+    rel = "character_board/" + base;
+  }
+  return `/api/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(rel)}`;
+}
+
+function formatDuration(sec) {
+  if (sec == null || sec === "" || Number.isNaN(Number(sec))) return "—";
+  const s = Math.max(0, Number(sec));
+  if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s - m * 60);
+  if (m < 60) return `${m}m ${rem}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function formatClock(iso) {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return String(iso).slice(11, 19) || iso;
+  try {
+    return new Date(t).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch (_) {
+    return iso;
+  }
+}
+
+function stagePriority(key) {
+  const k = String(key || "");
+  if (k === "total") return 0;
+  if (k === "essentials") return 10;
+  if (k === "director") return 20;
+  if (k === "character_sheets") return 30;
+  if (k.startsWith("char:")) return 31;
+  if (k === "shots") return 40;
+  if (k.startsWith("shot:")) return 41;
+  if (k === "assemble") return 50;
+  return 60;
+}
+
+function renderJobStatus(job) {
+  const body = $("job-status-body");
+  const meta = $("job-meta");
+  if (!body) return;
+
+  if (!job) {
+    if (meta) meta.textContent = "No active job.";
+    body.innerHTML =
+      '<tr class="empty-row"><td colspan="5">Stage timings appear when a job runs.</td></tr>';
+    return;
+  }
+
+  const pid = job.project_id || "";
+  const live = isLiveStatus(job.status);
+  const start = job.job_started_at || job.created_at;
+  if (meta) {
+    const title = job.title ? `“${job.title}” · ` : "";
+    meta.textContent = live
+      ? `${title}${pid || "job"} · started ${formatClock(start)} · ${String(job.status || "running")}`
+      : `${title}${pid || "job"} · ${String(job.status || "idle")}` +
+        (job.job_finished_at ? ` · finished ${formatClock(job.job_finished_at)}` : "");
+  }
+
+  let stages = Array.isArray(job.stage_timings) ? [...job.stage_timings] : [];
+  // Synthesize char rows from cast timing if stage list lacks them
+  if (Array.isArray(job.characters)) {
+    for (const c of job.characters) {
+      const key = `char:${c.id}`;
+      if (stages.some((s) => s.key === key)) continue;
+      if (c.sheet_duration_sec == null && !c.sheet_started_at) continue;
+      stages.push({
+        key,
+        label: `Sheet · ${c.name || c.id}`,
+        started_at: c.sheet_started_at,
+        ended_at: c.sheet_finished_at,
+        duration_sec: c.sheet_duration_sec,
+        status: c.sheet_status === "ready" ? "done" : c.sheet_status || "pending",
+        detail: `${c.sheet_count || 0} view(s)${c.sheet_source ? " · " + c.sheet_source : ""}`,
+      });
+    }
+  }
+  stages.sort((a, b) => {
+    const pa = stagePriority(a.key);
+    const pb = stagePriority(b.key);
+    if (pa !== pb) return pa - pb;
+    return String(a.key).localeCompare(String(b.key));
+  });
+
+  if (!stages.length) {
+    body.innerHTML =
+      '<tr class="empty-row"><td colspan="5">Waiting for pipeline stages…</td></tr>';
+    return;
+  }
+
+  body.innerHTML = stages
+    .map((row) => {
+      const st = String(row.status || "pending").toLowerCase();
+      let dur = row.duration_sec;
+      if (st === "running" && row.started_at && (dur == null || live)) {
+        const t0 = Date.parse(row.started_at);
+        if (!Number.isNaN(t0)) dur = (Date.now() - t0) / 1000;
+      }
+      const indent = String(row.key || "").includes(":") ? " stage-indent" : "";
+      return `<tr class="stage-${escapeHtml(st)}${indent}">
+        <td class="stage-label">${escapeHtml(row.label || row.key)}</td>
+        <td class="mono">${escapeHtml(formatClock(row.started_at))}</td>
+        <td class="mono">${escapeHtml(formatDuration(dur))}${
+          st === "running" ? " …" : ""
+        }</td>
+        <td><span class="stage-badge stage-badge-${escapeHtml(st)}">${escapeHtml(st)}</span></td>
+        <td class="stage-detail">${escapeHtml(row.detail || "")}</td>
+      </tr>`;
+    })
+    .join("");
+}
+
 function renderCast(characters, projectId) {
   const el = $("cast-list");
   if (!el) return;
@@ -84,22 +224,47 @@ function renderCast(characters, projectId) {
       const name = c.name || id;
       const look = c.look || "";
       const sheets = c.sheet_count != null ? c.sheet_count : null;
-      const hasImg = !!(c.image_path && projectId && !String(projectId).startsWith("pending_"));
+      const status = c.sheet_status || "";
+      const finalized =
+        status === "ready" || !!(c.image_path || c.thumb_path || (c.sheet_thumbs && c.sheet_thumbs.length));
       const initial = escapeHtml((name || "?").slice(0, 1).toUpperCase());
       let avatar = `<div class="cast-avatar" aria-hidden="true">${initial}</div>`;
-      if (hasImg) {
-        const base = String(c.image_path).replace(/\\/g, "/").split("/").pop();
-        if (base) {
-          const src = `/api/projects/${encodeURIComponent(projectId)}/file?path=${encodeURIComponent(
-            "character_board/" + base
-          )}`;
-          avatar = `<div class="cast-avatar"><img src="${src}" alt="" loading="lazy" /></div>`;
-        }
+      const thumbSrc =
+        boardFileUrl(projectId, c.thumb_path) ||
+        boardFileUrl(projectId, c.image_path) ||
+        (c.sheet_thumbs && c.sheet_thumbs[0]
+          ? boardFileUrl(projectId, c.sheet_thumbs[0].path)
+          : null);
+      if (finalized && thumbSrc) {
+        avatar = `<div class="cast-avatar has-img"><img src="${thumbSrc}" alt="" loading="lazy" /></div>`;
       }
-      return `<article class="cast-card">
+      let mini = "";
+      if (finalized && Array.isArray(c.sheet_thumbs) && c.sheet_thumbs.length > 1 && projectId) {
+        mini = `<div class="cast-thumbs">${c.sheet_thumbs
+          .slice(0, 4)
+          .map((t) => {
+            const src = boardFileUrl(projectId, t.path);
+            if (!src) return "";
+            return `<img src="${src}" alt="${escapeHtml(t.pose_id || "")}" title="${escapeHtml(
+              t.label || t.pose_id || ""
+            )}" loading="lazy" />`;
+          })
+          .join("")}</div>`;
+      }
+      const timing =
+        c.sheet_duration_sec != null
+          ? `<p class="cast-time">Sheet ${formatDuration(c.sheet_duration_sec)}${
+              c.sheet_source ? " · " + escapeHtml(c.sheet_source) : ""
+            }</p>`
+          : status === "building"
+            ? `<p class="cast-time">Building sheet…</p>`
+            : "";
+      return `<article class="cast-card${finalized ? " ready" : ""}">
         ${avatar}
         <div class="cast-meta">
-          <div class="cast-id">${escapeHtml(id)}</div>
+          <div class="cast-id">${escapeHtml(id)}${
+            status ? ` · ${escapeHtml(status)}` : ""
+          }</div>
           <p class="cast-name">${escapeHtml(name)}</p>
           ${look ? `<p class="cast-look">${escapeHtml(look)}</p>` : ""}
           ${
@@ -107,6 +272,8 @@ function renderCast(characters, projectId) {
               ? `<p class="cast-sheet">${sheets} sheet view${sheets === 1 ? "" : "s"}</p>`
               : ""
           }
+          ${timing}
+          ${mini}
         </div>
       </article>`;
     })
@@ -115,15 +282,29 @@ function renderCast(characters, projectId) {
 
 function charactersFromPlan(plan) {
   if (!plan || !Array.isArray(plan.characters)) return [];
-  return plan.characters.map((c) => ({
-    id: c.id,
-    name: c.name,
-    look: c.look || "",
-    image_path: c.image_path,
-    sheet_count: Array.isArray(c.sheet)
-      ? c.sheet.filter((p) => p && p.image_path).length
-      : undefined,
-  }));
+  return plan.characters.map((c) => {
+    const sheet = Array.isArray(c.sheet) ? c.sheet : [];
+    return {
+      id: c.id,
+      name: c.name,
+      look: c.look || "",
+      image_path: c.image_path,
+      thumb_path: c.image_path,
+      sheet_count: sheet.filter((p) => p && p.image_path).length,
+      sheet_status: c.sheet_status,
+      sheet_duration_sec: c.sheet_duration_sec,
+      sheet_source: c.sheet_source,
+      sheet_started_at: c.sheet_started_at,
+      sheet_finished_at: c.sheet_finished_at,
+      sheet_thumbs: sheet
+        .filter((p) => p && p.image_path)
+        .map((p) => ({
+          pose_id: p.pose_id,
+          label: p.label || p.pose_id,
+          path: p.image_path,
+        })),
+    };
+  });
 }
 
 function essentialsSignature(ess) {
@@ -365,10 +546,10 @@ async function refreshProjects() {
 
 async function resumeProject(projectId) {
   if (!projectId) return;
-  setBusy(true);
   resultEl.classList.add("hidden");
-  appendLog(`Resuming project ${projectId} (auto-starts ComfyUI/Ollama if needed)…`);
+  appendLog(`Queuing resume for ${projectId}…`);
   try {
+    await syncParallelJobs();
     const r = await fetch(`/api/projects/${encodeURIComponent(projectId)}/resume`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -381,13 +562,13 @@ async function resumeProject(projectId) {
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
-    appendLog(j.message || "Resume started");
+    appendLog(j.message || "Resume queued");
     watchingId = j.job_ref || projectId;
+    selectedTabKey = j.job_ref || projectId;
     saveSession({ job_ref: watchingId, watching: true, last_project_id: projectId });
     startPolling(watchingId);
   } catch (e) {
     appendLog("Resume failed: " + e.message);
-    setBusy(false);
   }
 }
 
@@ -409,12 +590,24 @@ async function openProject(id) {
   const r = await fetch(`/api/projects/${encodeURIComponent(id)}`);
   if (!r.ok) throw new Error("Project not found");
   const j = await r.json();
+  lastUiProjectId = id;
   planEl.textContent = JSON.stringify(j.plan || j, null, 2);
   renderCast(charactersFromPlan(j.plan) || j.characters || [], id);
   setLogLines(j.log || []);
   if (!j.log || !j.log.length) {
     logEl.textContent = "No logs stored for this project.";
   }
+  // Project detail returns full state — map to job status shape
+  renderJobStatus({
+    project_id: j.project_id || id,
+    status: j.status,
+    title: j.plan?.title,
+    stage_timings: j.stage_timings || [],
+    characters: charactersFromPlan(j.plan),
+    job_started_at: j.job_started_at || j.created_at,
+    job_finished_at: j.job_finished_at,
+    created_at: j.created_at,
+  });
   if (j.master_path) {
     showMaster(id, j.master_path);
   } else {
@@ -431,6 +624,7 @@ function formPayload() {
     target_duration_sec: Number($("duration").value || 60),
     max_shots: Number($("max_shots").value || 12),
     max_retakes: Number($("max_retakes").value || 2),
+    narrative_mode: ($("narrative_mode") && $("narrative_mode").value) || "character",
     auto_assemble: true,
     seed_base: 42,
   };
@@ -439,7 +633,7 @@ function formPayload() {
 $("btn-plan").addEventListener("click", async () => {
   const body = formPayload();
   if (!body.prompt) return alert("Enter a story prompt");
-  setBusy(true);
+  $("btn-plan").disabled = true;
   appendLog("Requesting director plan…");
   try {
     const r = await fetch("/api/plan", {
@@ -450,31 +644,57 @@ $("btn-plan").addEventListener("click", async () => {
         style: body.style,
         target_duration_sec: body.target_duration_sec,
         max_shots: body.max_shots,
+        narrative_mode: body.narrative_mode,
       }),
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
     planEl.textContent = JSON.stringify(j, null, 2);
     renderCast(charactersFromPlan(j), null);
-    appendLog(`Plan: “${j.title}” — ${j.shots?.length || 0} shots, ~${j.target_duration_sec}s`);
+    appendLog(
+      `Plan: “${j.title}” — ${j.shots?.length || 0} shots, ~${j.target_duration_sec}s · mode=${j.narrative_mode || "character"}`
+    );
     if (j.characters?.length) {
       appendLog(`Cast: ${j.characters.map((c) => c.name || c.id).join(", ")}`);
     }
   } catch (e) {
     appendLog("Plan failed: " + e.message);
   } finally {
-    setBusy(false);
+    $("btn-plan").disabled = false;
   }
 });
 
 let pollTimer = null;
 let watchingId = null;
+let selectedTabKey = null;
+let lastJobsPayload = null;
+
+async function syncParallelJobs() {
+  const el = $("parallel_jobs");
+  if (!el) return;
+  const n = Math.max(1, Math.min(8, Number(el.value || 1)));
+  el.value = String(n);
+  try {
+    await fetch("/api/settings/parallel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ max_parallel_jobs: n }),
+    });
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+$("parallel_jobs")?.addEventListener("change", () => {
+  syncParallelJobs().then(() => {
+    appendLog(`Parallel jobs set to ${$("parallel_jobs").value}`);
+  });
+});
 
 $("btn-run").addEventListener("click", async () => {
   const body = formPayload();
   if (!body.prompt) return alert("Enter a story prompt");
 
-  // Preflight: surface essentials before long GPU wait
   try {
     const hr = await fetch("/api/health");
     const hj = await hr.json();
@@ -489,16 +709,13 @@ $("btn-run").addEventListener("click", async () => {
       if (!okContinue) return;
     }
   } catch (_) {
-    /* proceed; pipeline will fail clearly */
+    /* proceed */
   }
 
-  setBusy(true);
   resultEl.classList.add("hidden");
-  logEl.textContent = "";
-  renderCast([], null);
-  appendLog("Starting full pipeline (Director → H3 → Critic → Assemble)…");
-  appendLog("Will auto-start ComfyUI / Ollama if they are not running.");
+  appendLog("Enqueueing job (Director → H3 → Critic → Assemble)…");
   try {
+    await syncParallelJobs();
     const r = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -506,14 +723,13 @@ $("btn-run").addEventListener("click", async () => {
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
-    appendLog(j.message || "Started");
+    appendLog(j.message || "Queued");
     watchingId = j.job_ref || null;
+    selectedTabKey = j.job_ref || null;
     saveSession({ job_ref: watchingId, watching: true });
     startPolling(watchingId);
   } catch (e) {
     appendLog("Start failed: " + e.message);
-    setBusy(false);
-    clearSession();
   }
 });
 
@@ -521,79 +737,243 @@ $("btn-stop").addEventListener("click", async () => {
   appendLog("Requesting stop…");
   $("btn-stop").disabled = true;
   try {
-    const r = await fetch("/api/generate/stop", { method: "POST" });
+    const body = {};
+    if (selectedTabKey) {
+      body.job_ref = selectedTabKey;
+      // Also target project id if known
+      const tab = (lastJobsPayload?.tabs || []).find((t) => t.job_key === selectedTabKey);
+      if (tab?.project_id && !String(tab.project_id).startsWith("pending_")) {
+        body.project_id = tab.project_id;
+      }
+    } else {
+      body.stop_all = true;
+    }
+    const r = await fetch("/api/generate/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
     appendLog(j.message || "Stop requested");
     if (j.orphaned?.length) {
       appendLog("Cleared stuck project(s): " + j.orphaned.join(", "));
     }
-    // Always re-poll so UI unlocks when worker is already gone / orphans cleared
     if (!pollTimer) startPolling(watchingId);
-    // If nothing was live, unlock UI immediately
-    if (!j.stopped || j.orphaned?.length) {
-      // Give one fast poll cycle; tick will clear busy if not live
-    }
   } catch (e) {
     appendLog("Stop failed: " + e.message);
     $("btn-stop").disabled = false;
   }
 });
 
+function resolveJobFromPayload(payload, preferredId) {
+  const active = payload.active || {};
+  if (preferredId && active[preferredId]) return active[preferredId];
+  const tabs = payload.tabs || [];
+  if (preferredId) {
+    const tab = tabs.find(
+      (t) => t.job_key === preferredId || t.project_id === preferredId
+    );
+    if (tab) {
+      const hit =
+        active[tab.job_key] ||
+        active[tab.project_id] ||
+        Object.values(active).find(
+          (x) => x.job_key === tab.job_key || x.project_id === tab.project_id
+        );
+      if (hit) return hit;
+    }
+  }
+  return pickJob(payload, preferredId);
+}
+
 function pickJob(payload, preferredId) {
   const active = Object.values(payload.active || {});
+  const workerAlive = payload.worker_alive !== false;
+
+  if (workerAlive) {
+    const lives = [];
+    const seen = new Set();
+    const push = (x) => {
+      if (!x || !isWorkerLiveStatus(x.status)) return;
+      const id = x.job_key || x.project_id || "";
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      lives.push(x);
+    };
+    push(payload.current);
+    for (const x of active) push(x);
+
+    if (lives.length) {
+      if (preferredId) {
+        const byProject = lives.find(
+          (x) =>
+            x.project_id === preferredId ||
+            x.job_key === preferredId
+        );
+        if (byProject) return byProject;
+        const byKey = payload.active?.[preferredId];
+        if (byKey && isWorkerLiveStatus(byKey.status)) return byKey;
+      }
+      return lives[0];
+    }
+  }
+
+  // Queued preferred
   if (preferredId) {
     const hit =
       payload.active?.[preferredId] ||
-      active.find((x) => x.project_id === preferredId);
+      active.find(
+        (x) => x.project_id === preferredId || x.job_key === preferredId
+      );
     if (hit) return hit;
   }
-  // Prefer truly live jobs only when worker says so
-  if (payload.worker_alive !== false) {
-    const live = active.find((x) => isLiveStatus(x.status));
-    if (live) return live;
-  } else {
-    // Worker down: never treat cancelled/orphaned as live-polling forever
-    const live = active.find(
-      (x) => isLiveStatus(x.status) && String(x.status).toLowerCase() === "cancelling"
-    );
-    if (live && payload.cancel_requested) return live;
-  }
-  if (payload.current && isLiveStatus(payload.current.status) && payload.worker_alive) {
-    return payload.current;
-  }
+  const queued = active.find((x) => String(x.status).toLowerCase() === "queued");
+  if (queued) return queued;
   if (payload.current) return payload.current;
   return null;
+}
+
+function tabLabel(tab) {
+  const title = (tab.title || tab.prompt_preview || tab.project_id || tab.job_key || "Job")
+    .toString()
+    .trim();
+  const short = title.length > 28 ? title.slice(0, 26) + "…" : title;
+  return short;
+}
+
+function renderJobTabs(payload) {
+  const el = $("job-tabs");
+  const meta = $("queue-meta");
+  if (!el) return;
+  const tabs = Array.isArray(payload.tabs) ? payload.tabs : [];
+  const maxP = payload.max_parallel_jobs ?? 1;
+  const workers = payload.workers_alive ?? (payload.worker_alive ? 1 : 0);
+  const qn = (payload.queue || []).length;
+
+  if (meta) {
+    if (!tabs.length) meta.textContent = "No active jobs.";
+    else
+      meta.textContent = `${workers}/${maxP} running · ${qn} queued · ${tabs.length} tab(s)`;
+  }
+
+  if (!tabs.length) {
+    el.innerHTML = "";
+    return;
+  }
+
+  const sel = selectedTabKey || watchingId;
+  el.innerHTML = tabs
+    .map((t) => {
+      const key = t.job_key || t.project_id;
+      const st = String(t.status || "").toLowerCase();
+      const active = key === sel ? " active" : "";
+      const pos =
+        st === "queued" && t.queue_position != null ? ` #${t.queue_position}` : "";
+      return `<button type="button" class="job-tab ${escapeHtml(st)}${active}" data-job-key="${escapeHtml(
+        key
+      )}" role="tab" aria-selected="${key === sel ? "true" : "false"}">
+        <strong>${escapeHtml(tabLabel(t))}</strong>
+        <span class="tab-sub">${escapeHtml(st)}${escapeHtml(pos)}</span>
+      </button>`;
+    })
+    .join("");
+
+  el.querySelectorAll("button[data-job-key]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedTabKey = btn.dataset.jobKey;
+      watchingId = selectedTabKey;
+      saveSession({ job_ref: watchingId, watching: true });
+      lastUiProjectId = null;
+      if (lastJobsPayload) {
+        const job = resolveJobFromPayload(lastJobsPayload, selectedTabKey);
+        if (job) applyLiveJobUi(job);
+      }
+      startPolling(selectedTabKey);
+    });
+  });
+}
+
+/** Track which project last painted cast / plan so we can switch when live job changes. */
+let lastUiProjectId = null;
+
+function applyLiveJobUi(job) {
+  const pid = job.project_id || null;
+  const projectChanged =
+    pid && !String(pid).startsWith("pending_") && pid !== lastUiProjectId;
+  if (projectChanged) {
+    lastUiProjectId = pid;
+    renderCast([], null);
+  }
+  setLogLines(job.log || []);
+  renderJobStatus(job);
+  if (Array.isArray(job.characters)) {
+    renderCast(job.characters, pid);
+  } else if (projectChanged) {
+    renderCast([], pid);
+  }
+  return projectChanged;
+}
+
+function anyActiveWork(payload) {
+  if (payload.worker_alive) return true;
+  if ((payload.queue || []).length) return true;
+  if ((payload.tabs || []).length) return true;
+  return Object.values(payload.active || {}).some((j) => isLiveStatus(j.status));
 }
 
 function startPolling(preferredId) {
   if (pollTimer) clearInterval(pollTimer);
   watchingId = preferredId || watchingId;
+  if (watchingId) selectedTabKey = watchingId;
 
   const tick = async () => {
     try {
       const r = await fetch("/api/jobs");
       const j = await r.json();
-      const job = pickJob(j, watchingId);
-      const live =
-        job &&
-        isLiveStatus(job.status) &&
-        (j.worker_alive || String(job.status).toLowerCase() === "cancelling");
+      lastJobsPayload = j;
+      renderJobTabs(j);
+
+      // Keep parallel input in sync with server
+      if ($("parallel_jobs") && j.max_parallel_jobs != null && document.activeElement !== $("parallel_jobs")) {
+        $("parallel_jobs").value = String(j.max_parallel_jobs);
+      }
+
+      const job = resolveJobFromPayload(j, selectedTabKey || watchingId);
+      const live = job && isLiveStatus(job.status);
+      const workerLive =
+        job && isWorkerLiveStatus(job.status) && (j.worker_alive || String(job.status).toLowerCase() === "cancelling");
+
+      if (anyActiveWork(j)) {
+        setBusy(true, { keepGenerate: true });
+      }
 
       if (live) {
-        setBusy(true);
         if (job.project_id && !String(job.project_id).startsWith("pending_")) {
-          watchingId = job.project_id;
-          saveSession({ job_ref: watchingId, watching: true, last_project_id: watchingId });
+          if (selectedTabKey === (job.job_key || watchingId) || !selectedTabKey) {
+            watchingId = job.job_key || job.project_id;
+            saveSession({
+              job_ref: watchingId,
+              watching: true,
+              last_project_id: job.project_id,
+            });
+          }
         }
-        setLogLines(job.log || []);
-        if (job.characters?.length) {
-          renderCast(job.characters, job.project_id);
-        }
+        const projectChanged = applyLiveJobUi(job);
         if (job.status === "cancelling") {
           $("btn-stop").disabled = true;
+        } else {
+          $("btn-stop").disabled = false;
         }
-        if (job.title && planEl.textContent === "No plan yet.") {
+        const needPlan =
+          workerLive &&
+          job.project_id &&
+          !String(job.project_id).startsWith("pending_") &&
+          (projectChanged ||
+            !job.characters?.length ||
+            planEl.textContent === "No plan yet." ||
+            (job.title && !String(planEl.textContent || "").includes(String(job.title))));
+        if (needPlan) {
           try {
             const pr = await fetch(`/api/projects/${encodeURIComponent(job.project_id)}`);
             if (pr.ok) {
@@ -602,36 +982,38 @@ function startPolling(preferredId) {
                 planEl.textContent = JSON.stringify(detail.plan, null, 2);
                 renderCast(charactersFromPlan(detail.plan), job.project_id);
               }
+              if (detail.stage_timings?.length || detail.log?.length) {
+                renderJobStatus({
+                  ...job,
+                  stage_timings: detail.stage_timings || job.stage_timings,
+                  job_started_at: detail.job_started_at || job.job_started_at,
+                  characters: charactersFromPlan(detail.plan),
+                  title: detail.plan?.title || job.title,
+                });
+              }
               if (detail.log?.length > (job.log || []).length) setLogLines(detail.log);
             }
           } catch (_) {
             /* keep polled log */
           }
-        } else if (
-          job.project_id &&
-          !String(job.project_id).startsWith("pending_") &&
-          (!job.characters || !job.characters.length)
-        ) {
-          // Plan may exist on disk before job snapshot includes cast
-          try {
-            const pr = await fetch(`/api/projects/${encodeURIComponent(job.project_id)}`);
-            if (pr.ok) {
-              const detail = await pr.json();
-              if (detail.plan?.characters?.length) {
-                if (planEl.textContent === "No plan yet.") {
-                  planEl.textContent = JSON.stringify(detail.plan, null, 2);
-                }
-                renderCast(charactersFromPlan(detail.plan), job.project_id);
-              }
-            }
-          } catch (_) {
-            /* ignore */
-          }
         }
         return;
       }
 
-      // Job finished or idle
+      // Selected job finished, but others may still be active
+      if (anyActiveWork(j)) {
+        // Switch selection to another live tab if current died
+        const next = (j.tabs || [])[0];
+        if (next) {
+          selectedTabKey = next.job_key || next.project_id;
+          watchingId = selectedTabKey;
+          const nj = resolveJobFromPayload(j, selectedTabKey);
+          if (nj) applyLiveJobUi(nj);
+        }
+        return;
+      }
+
+      // All jobs finished or idle
       clearInterval(pollTimer);
       pollTimer = null;
       setBusy(false);
@@ -648,6 +1030,7 @@ function startPolling(preferredId) {
       if (projectId) {
         try {
           await openProject(projectId);
+          lastUiProjectId = projectId;
         } catch (_) {
           if (job?.log?.length) setLogLines(job.log);
         }
@@ -660,6 +1043,8 @@ function startPolling(preferredId) {
       }
       if (job?.status === "cancelled") {
         appendLog("Generation stopped.");
+      } else if (job?.status === "failed") {
+        appendLog("Job failed (shot exhausted retakes or no masters).");
       } else {
         appendLog("Job finished or idle.");
       }
@@ -677,22 +1062,44 @@ async function resumeSession() {
   try {
     const r = await fetch("/api/jobs");
     const j = await r.json();
+    lastJobsPayload = j;
+    renderJobTabs(j);
+    if ($("parallel_jobs") && j.max_parallel_jobs != null) {
+      $("parallel_jobs").value = String(j.max_parallel_jobs);
+    }
     const session = loadSession();
     const preferred = session?.job_ref || session?.last_project_id || null;
-    const job = pickJob(j, preferred);
+    const job = resolveJobFromPayload(j, preferred) || pickJob(j, preferred);
 
-    if (job && isLiveStatus(job.status) && j.worker_alive) {
-      setBusy(true);
-      setLogLines(job.log || ["Resuming live generation…"]);
-      appendLog("Reconnected — following live generation logs.");
-      watchingId = job.project_id || preferred;
+    if (anyActiveWork(j)) {
+      setBusy(true, { keepGenerate: true });
+      watchingId =
+        job?.job_key || job?.project_id || preferred || (j.tabs?.[0]?.job_key);
+      selectedTabKey = watchingId;
+      lastUiProjectId = null;
+      if (job) applyLiveJobUi(job);
+      appendLog("Reconnected — following job queue.");
       saveSession({ job_ref: watchingId, watching: true, last_project_id: watchingId });
+      if (watchingId && !String(watchingId).startsWith("pending_")) {
+        try {
+          const pr = await fetch(`/api/projects/${encodeURIComponent(job?.project_id || watchingId)}`);
+          if (pr.ok) {
+            const detail = await pr.json();
+            if (detail.plan) {
+              planEl.textContent = JSON.stringify(detail.plan, null, 2);
+              renderCast(charactersFromPlan(detail.plan), job?.project_id || watchingId);
+            }
+            if (detail.log?.length) setLogLines(detail.log);
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      }
       startPolling(watchingId);
       await refreshProjects();
       return;
     }
 
-    // Restore finished / last project logs
     const projectId =
       (job && job.project_id && !String(job.project_id).startsWith("pending_")
         ? job.project_id
@@ -703,6 +1110,7 @@ async function resumeSession() {
     if (projectId && !String(projectId).startsWith("pending_")) {
       try {
         await openProject(projectId);
+        lastUiProjectId = projectId;
         appendLog("Restored logs for " + projectId);
       } catch (_) {
         if (job?.log?.length) {

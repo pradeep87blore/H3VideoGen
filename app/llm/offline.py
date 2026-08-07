@@ -44,63 +44,94 @@ def director_plan_json(
     target_duration_sec: float,
     shot_count: int,
     per_shot: float,
+    narrative_mode: str = "character",
 ) -> dict[str, Any]:
     """Produce a valid production plan without an LLM."""
+    mode = (narrative_mode or "character").lower()
     title = _title_from_prompt(user_prompt)
-    character_hint = user_prompt.strip()[:220] or "main character from the story prompt"
+    character_hint = user_prompt.strip()[:220] or "main subject from the prompt"
     shots: list[dict[str, Any]] = []
     for i in range(shot_count):
         beat = _BEATS[i % len(_BEATS)]
         camera = _CAMERAS[i % len(_CAMERAS)]
         sid = f"S{i+1:02d}"
+        if mode == "explainer":
+            narr = f"In simple terms: {beat.lower()}. {character_hint[:80]}."
+            vis = (
+                f"Educational visual metaphor for: {user_prompt.strip()}. Beat: {beat}. "
+                f"Clear readable subject, one idea, no on-screen text, cinematic motion."
+            )
+            presence = "Metaphor objects / environments only; no invented main character cast"
+            refs: list[str] = []
+        elif mode == "documentary":
+            narr = f"{beat}. {character_hint[:100]}."
+            vis = (
+                f"Documentary continuous take: {user_prompt.strip()}. Beat: {beat}. "
+                f"Historical scale, era materials, no on-screen text."
+            )
+            presence = "Places, machines, or mass figures; no fictional star cast"
+            refs = []
+        else:
+            narr = f"{beat}."
+            vis = (
+                f"{user_prompt.strip()}. Beat: {beat}. "
+                f"Single continuous take, action reads clearly for YouTube. "
+                f"Keep subjects readable; strong silhouette; cinematic motion."
+            )
+            presence = f"Only characters implied by the story. Focus: {character_hint[:120]}"
+            refs = ["C01"]
         shots.append(
             {
                 "id": sid,
                 "name": f"Beat {i+1}",
                 "beat": beat,
                 "duration_sec": round(per_shot, 1),
-                "visual_prompt": (
-                    f"{user_prompt.strip()}. Beat: {beat}. "
-                    f"Single continuous take, action reads clearly for YouTube. "
-                    f"Keep subjects readable; strong silhouette; cinematic motion."
-                ),
+                "visual_prompt": vis,
                 "camera": camera,
-                "audio_notes": "Diegetic ambience matching scene; light score swell if needed",
-                "character_presence": (
-                    f"Only characters implied by the story. Focus: {character_hint[:120]}"
-                ),
-                "ref_character_ids": ["C01"],
+                "audio_notes": "Diegetic ambience matching scene",
+                "character_presence": presence,
+                "ref_character_ids": refs,
+                "narration_line": narr[:220],
             }
         )
-
-    return {
-        "title": title,
-        "logline": user_prompt.strip()[:280],
-        "target_duration_sec": target_duration_sec,
-        "aspect_ratio": "16:9",
-        "style_bible": (
-            style.strip()
-            or "Stylized cinematic animation, coherent art direction, no photoreal/cartoon mix"
-        ),
-        "character_lock": (
-            f"Hold consistent character design, wardrobe, and color identity across shots. "
-            f"Story subject: {character_hint}"
-        ),
-        "characters": [
+    chars: list[dict[str, Any]] = []
+    if mode == "character":
+        char_lock = (
+            f"Hold consistent character design. Story subject: {character_hint}"
+        )
+        chars = [
             {
                 "id": "C01",
                 "name": "Main Character",
                 "look": character_hint,
                 "board_prompt": (
-                    f"Character design portrait of the main character from: {character_hint}. "
-                    f"Style: {style}. Full body, clear face, plain studio background, no text."
+                    f"Character design portrait: {character_hint}. Style: {style}. "
+                    f"Full body, clear face, plain studio background, no text."
                 ),
             }
-        ],
-        "color_grade": "Cohesive grade matching the style bible; avoid random palette drift",
-        "audio_bed": "Light ambient bed + diegetic SFX; no spoken dialogue unless inherent SFX",
-        "youtube_notes": "Hook in S01; vary shot size; keep motion readable; no on-screen text",
-        "raw_director_notes": "Offline template plan (no LLM). Refine prompts on retakes if needed.",
+        ]
+    else:
+        char_lock = "No locked cast — continuity of era / metaphor / palette."
+    joined = " ".join(
+        (s.get("narration_line") or "").rstrip(".") + "."
+        for s in shots
+        if s.get("narration_line")
+    )
+    return {
+        "title": title,
+        "logline": user_prompt.strip()[:280],
+        "target_duration_sec": target_duration_sec,
+        "aspect_ratio": "16:9",
+        "narrative_mode": mode,
+        "style_bible": style.strip()
+        or "Stylized cinematic look, coherent art direction",
+        "character_lock": char_lock,
+        "characters": chars,
+        "color_grade": "Cohesive grade matching the style bible",
+        "audio_bed": "Ambient bed; narrator is separate VO",
+        "youtube_notes": "Hook in S01; keep idea clear; no on-screen text",
+        "narration_script": joined,
+        "raw_director_notes": f"Offline template plan (mode={mode}).",
         "shots": shots,
     }
 

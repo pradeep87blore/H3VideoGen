@@ -237,7 +237,7 @@ h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: 0.02em; }
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  max-height: 220px;
+  max-height: 280px;
   overflow: auto;
   padding-right: 0.15rem;
 }
@@ -252,10 +252,13 @@ h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: 0.02em; }
   background: rgba(0,0,0,0.28);
   border: 1px solid var(--line);
 }
+.cast-card.ready {
+  border-color: rgba(125, 186, 122, 0.35);
+}
 .cast-avatar {
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 0.5rem;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 0.55rem;
   object-fit: cover;
   background: rgba(226,163,92,0.15);
   border: 1px solid var(--line);
@@ -265,7 +268,9 @@ h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: 0.02em; }
   font-weight: 700;
   color: var(--accent);
   flex-shrink: 0;
+  overflow: hidden;
 }
+.cast-avatar.has-img { padding: 0; }
 .cast-avatar img {
   width: 100%;
   height: 100%;
@@ -301,12 +306,121 @@ h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: 0.02em; }
   color: var(--muted);
   font-family: var(--mono);
 }
+.cast-meta .cast-time {
+  margin: 0.2rem 0 0;
+  font-size: 0.7rem;
+  color: var(--accent2);
+  font-family: var(--mono);
+}
+.cast-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  margin-top: 0.4rem;
+}
+.cast-thumbs img {
+  width: 2rem;
+  height: 2rem;
+  object-fit: cover;
+  border-radius: 0.3rem;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.25);
+}
+
+.status-block {
+  margin-bottom: 0.85rem;
+}
+.job-meta {
+  font-size: 0.72rem !important;
+  text-align: right;
+  max-width: 55%;
+}
+.table-scroll {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: rgba(0,0,0,0.22);
+}
+.status-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.status-table th,
+.status-table td {
+  padding: 0.4rem 0.55rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  vertical-align: top;
+}
+.status-table th {
+  position: sticky;
+  top: 0;
+  background: rgba(20, 18, 16, 0.95);
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  z-index: 1;
+}
+.status-table .mono {
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.status-table .stage-indent .stage-label {
+  padding-left: 0.85rem;
+  color: var(--muted);
+}
+.status-table .stage-detail {
+  color: var(--muted);
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-table .empty-row td {
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  padding: 0.85rem;
+}
+.stage-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.35rem;
+  font-size: 0.68rem;
+  font-family: var(--mono);
+  text-transform: lowercase;
+  border: 1px solid var(--line);
+}
+.stage-badge-running {
+  color: var(--accent);
+  border-color: rgba(226,163,92,0.45);
+  background: rgba(226,163,92,0.12);
+}
+.stage-badge-done {
+  color: var(--ok);
+  border-color: rgba(125,186,122,0.4);
+  background: rgba(125,186,122,0.1);
+}
+.stage-badge-error, .stage-badge-cancelled {
+  color: #e8a0a0;
+  border-color: rgba(220,100,100,0.4);
+}
+.stage-badge-skipped, .stage-badge-pending {
+  color: var(--muted);
+}
+tr.stage-running {
+  background: rgba(226,163,92,0.06);
+}
 h2 { margin: 0 0 0.9rem; font-size: 0.95rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 
 .field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.85rem; }
 .field span { font-size: 0.85rem; color: var(--muted); }
 .field span em { font-style: normal; color: var(--accent2); font-size: 0.8rem; }
-textarea, input {
+textarea, input, select {
   width: 100%;
   background: rgba(0,0,0,0.28);
   border: 1px solid var(--line);
@@ -316,7 +430,8 @@ textarea, input {
   font: inherit;
   resize: vertical;
 }
-textarea:focus, input:focus { outline: 1px solid rgba(226,163,92,0.45); border-color: transparent; }
+select { resize: none; cursor: pointer; }
+textarea:focus, input:focus, select:focus { outline: 1px solid rgba(226,163,92,0.45); border-color: transparent; }
 .row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
 .row.between { justify-content: space-between; align-items: center; }
 .row.actions { margin-top: 0.4rem; }
@@ -383,6 +498,55 @@ textarea:focus, input:focus { outline: 1px solid rgba(226,163,92,0.45); border-c
 .badge.completed, .badge.completed_no_assemble { color: var(--ok); border-color: rgba(125,186,122,0.35); }
 .badge.error, .badge.failed { color: var(--danger); border-color: rgba(214,106,94,0.35); }
 .badge.running, .badge.planning, .badge.assembling { color: var(--accent); border-color: rgba(226,163,92,0.35); }
+.badge.queued, .badge.cancelling { color: var(--muted); border-color: rgba(154,149,140,0.4); }
+
+.job-tabs-block { margin-bottom: 0.35rem; }
+.job-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.25rem;
+  min-height: 2rem;
+}
+.job-tab {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.28);
+  color: var(--muted);
+  border-radius: 0.55rem;
+  padding: 0.4rem 0.65rem;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  max-width: 11rem;
+  text-align: left;
+  line-height: 1.25;
+}
+.job-tab strong {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-tab .tab-sub {
+  display: block;
+  font-size: 0.68rem;
+  opacity: 0.85;
+  margin-top: 0.1rem;
+}
+.job-tab.active {
+  border-color: rgba(226,163,92,0.55);
+  background: rgba(226,163,92,0.12);
+  color: var(--text);
+}
+.job-tab.queued { border-style: dashed; }
+.job-tab.running, .job-tab.planning, .job-tab.assembling {
+  border-color: rgba(226,163,92,0.35);
+}
+.job-tab.cancelling { opacity: 0.75; }
+.job-tab:hover { border-color: rgba(255,255,255,0.2); }
 
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; padding: 1rem; }

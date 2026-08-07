@@ -184,20 +184,48 @@ class CharacterBoardBuilder:
         settings: Settings,
         board_dir: Path,
         log: LogFn | None = None,
-        comfy: ComfyH3Client | None = None,
+        comfy: "ComfyH3Client | None" = None,
+        on_character_done: Callable[[CharacterDesign], None] | None = None,
     ):
         self.settings = settings
         self.board_dir = Path(board_dir)
         self.board_dir.mkdir(parents=True, exist_ok=True)
         self.log = log
         self.comfy = comfy
+        self.on_character_done = on_character_done
 
     def _emit(self, msg: str) -> None:
         if self.log:
             self.log(msg)
 
+    def _notify_char_done(self, c: CharacterDesign) -> None:
+        if self.on_character_done:
+            try:
+                self.on_character_done(c)
+            except Exception:
+                pass
+
     def build(self, plan: ProductionPlan) -> list[CharacterDesign]:
         """Build multi-view character sheets (Gemini stills and/or H3 turnaround)."""
+        from datetime import datetime, timezone
+
+        def _iso() -> str:
+            return datetime.now(timezone.utc).isoformat()
+
+        def _elapsed(start: str | None, end: str | None) -> float | None:
+            if not start:
+                return None
+            try:
+                a = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                b = (
+                    datetime.fromisoformat(end.replace("Z", "+00:00"))
+                    if end
+                    else datetime.now(timezone.utc)
+                )
+                return round(max(0.0, (b - a).total_seconds()), 2)
+            except Exception:
+                return None
+
         job_control.check()
         chars = ensure_character_designs(plan)
         mode = (self.settings.character_board_mode or "auto").lower()
@@ -213,16 +241,76 @@ class CharacterBoardBuilder:
 
         self._adopt_manual_files(chars)
 
-        if mode in ("auto", "gemini"):
-            self._fill_gemini_sheets(chars, plan)
+        for c in chars:
+            already = self._primary_path(c)
+            if already and not self._missing_poses(c):
+                # Fully on disk already (resume / manual)
+                c.sheet_status = "ready"
+                if c.sheet_duration_sec is None and c.sheet_started_at and c.sheet_finished_at:
+                    c.sheet_duration_sec = _elapsed(c.sheet_started_at, c.sheet_finished_at)
+                if not c.sheet_source:
+                    c.sheet_source = "manual" if already else "none"
+                if c.sheet_finished_at is None and c.sheet_duration_sec is None:
+                    # Resume with existing assets — don't invent a long duration
+                    c.sheet_duration_sec = 0.0
+                    if not c.sheet_started_at:
+                        c.sheet_started_at = _iso()
+                    c.sheet_finished_at = c.sheet_started_at
+                self._notify_char_done(c)
+                continue
 
-        if mode in ("auto", "h3") and self.comfy and self.settings.character_sheet_use_h3:
-            need = [c for c in chars if self._missing_poses(c)]
-            for c in need:
+            c.sheet_started_at = c.sheet_started_at or _iso()
+            c.sheet_status = "building"
+            c.sheet_finished_at = None
+            used_sources: list[str] = []
+            if any(p.image_path for p in c.sheet):
+                used_sources.append("manual")
+
+            if mode in ("auto", "gemini"):
+                gemini_n = self._fill_gemini_for_character(c, plan)
+                if gemini_n:
+                    used_sources.append("gemini")
+
+            if (
+                mode in ("auto", "h3")
+                and self.comfy
+                and self.settings.character_sheet_use_h3
+                and self._missing_poses(c)
+            ):
                 try:
-                    self._fill_h3_turnaround(c, plan)
+                    h3_n = self._fill_h3_turnaround(c, plan)
+                    if h3_n:
+                        used_sources.append("h3")
                 except Exception as exc:  # noqa: BLE001
                     self._emit(f"Character sheet H3 turnaround failed for {c.name}: {exc}")
+
+            self._sync_primary_image([c])
+            primary = self._primary_path(c)
+            c.sheet_finished_at = _iso()
+            c.sheet_duration_sec = _elapsed(c.sheet_started_at, c.sheet_finished_at)
+            if not used_sources:
+                used_sources = ["none"]
+            c.sheet_source = (
+                "mixed"
+                if len(set(used_sources)) > 1
+                else used_sources[0]
+            )
+            poses_ready = sum(
+                1 for p in c.sheet if p.image_path and Path(p.image_path).exists()
+            )
+            if primary:
+                c.sheet_status = "ready"
+                self._emit(
+                    f"Character sheet finalized: {c.name} ({c.id}) in "
+                    f"{c.sheet_duration_sec:.1f}s — {poses_ready} view(s), source={c.sheet_source}"
+                )
+            else:
+                c.sheet_status = "failed"
+                self._emit(
+                    f"Character sheet incomplete: {c.name} ({c.id}) after "
+                    f"{c.sheet_duration_sec or 0:.1f}s — no primary still"
+                )
+            self._notify_char_done(c)
 
         self._sync_primary_image(chars)
         self._write_manifest(plan, chars)
@@ -289,32 +377,40 @@ class CharacterBoardBuilder:
                         c.sheet[0].image_path = str(legacy)
                         break
 
-    def _fill_gemini_sheets(self, chars: list[CharacterDesign], plan: ProductionPlan) -> None:
-        for i, c in enumerate(chars):
-            for pose in self._missing_poses(c):
-                job_control.check()
-                try:
-                    path = self._gemini_still(c, plan, pose)
-                    if path:
-                        pose.image_path = str(path)
-                        self._emit(
-                            f"Character sheet: {c.name} / {pose.pose_id} → {path.name}"
-                        )
-                except CancelledError:
-                    raise
-                except Exception as exc:  # noqa: BLE001
-                    self._emit(
-                        f"Character sheet Gemini failed {c.name}/{pose.pose_id}: {exc}"
-                    )
+    def _fill_gemini_for_character(
+        self, c: CharacterDesign, plan: ProductionPlan
+    ) -> int:
+        """Fill missing poses via Gemini. Returns count of new stills."""
+        n = 0
+        for pose in self._missing_poses(c):
+            job_control.check()
+            try:
+                path = self._gemini_still(c, plan, pose)
+                if path:
+                    pose.image_path = str(path)
+                    n += 1
+                    self._emit(f"Character sheet: {c.name} / {pose.pose_id} → {path.name}")
+            except CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                self._emit(f"Character sheet Gemini failed {c.name}/{pose.pose_id}: {exc}")
+        return n
 
-    def _fill_h3_turnaround(self, char: CharacterDesign, plan: ProductionPlan) -> None:
-        """One short studio turnaround clip → extract frames into missing poses."""
+    def _fill_gemini_sheets(self, chars: list[CharacterDesign], plan: ProductionPlan) -> None:
+        for c in chars:
+            self._fill_gemini_for_character(c, plan)
+
+    def _fill_h3_turnaround(self, char: CharacterDesign, plan: ProductionPlan) -> int:
+        """One short studio turnaround clip → extract frames into missing poses.
+
+        Returns number of poses filled from the turnaround.
+        """
         if not self.comfy:
-            return
+            return 0
         job_control.check()
         missing = self._missing_poses(char)
         if not missing:
-            return
+            return 0
         from .media import extract_frames
 
         seed = 9000 + sum(ord(ch) for ch in char.id)
@@ -339,11 +435,14 @@ class CharacterBoardBuilder:
         frames_dir = self.board_dir / f"_turn_{char.id}"
         times = [0.4, 1.2, 2.0, 2.8, 3.6, 4.4][: len(missing)]
         frames = extract_frames(self.settings, video, frames_dir, times=times)
+        filled = 0
         for pose, frame in zip(missing, frames):
             dest = self.board_dir / f"{char.id}_{pose.pose_id}.jpg"
             shutil.copy2(frame, dest)
             pose.image_path = str(dest)
+            filled += 1
             self._emit(f"Character sheet: {char.name} / {pose.pose_id} from H3 turn → {dest.name}")
+        return filled
 
     def adopt_frame(
         self,
