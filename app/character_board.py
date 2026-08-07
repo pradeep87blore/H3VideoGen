@@ -57,8 +57,11 @@ PRIMARY_POSES: list[tuple[str, str, str]] = [
 SECONDARY_POSES = PRIMARY_POSES[:2]  # front + three_quarter for supporting cast
 
 
-def ensure_character_designs(plan: ProductionPlan) -> list[CharacterDesign]:
-    """Normalize plan.characters; invent from character_lock if director omitted them."""
+def ensure_character_designs(plan: ProductionPlan, story_hint: str = "") -> list[CharacterDesign]:
+    """Normalize plan.characters; invent from character_lock if director omitted them.
+
+    Reorders so the story protagonist is C01 (exclusivity / sheets treat C01 as lead).
+    """
     chars = list(plan.characters or [])
     if chars:
         for i, c in enumerate(chars):
@@ -70,6 +73,9 @@ def ensure_character_designs(plan: ProductionPlan) -> list[CharacterDesign]:
                     f"Style: {plan.style_bible}. Neutral standing pose, full body preferred, "
                     f"clear face, plain studio background, single character only, no text."
                 )
+        chars = _prioritize_lead_character(plan, chars, story_hint)
+        for i, c in enumerate(chars):
+            c.id = f"C{i+1:02d}"
             _ensure_sheet_slots(c, primary=(i == 0))
         plan.characters = chars[:6]
         return plan.characters
@@ -88,9 +94,65 @@ def ensure_character_designs(plan: ProductionPlan) -> list[CharacterDesign]:
                 f"clear face, plain studio background, single character only, no text."
             ),
         )
-        _ensure_sheet_slots(c, primary=(i == 0))
         chars.append(c)
+    chars = _prioritize_lead_character(plan, chars, story_hint)
+    for i, c in enumerate(chars):
+        c.id = f"C{i+1:02d}"
+        _ensure_sheet_slots(c, primary=(i == 0))
     plan.characters = chars
+    return chars
+
+
+def _prioritize_lead_character(
+    plan: ProductionPlan,
+    chars: list[CharacterDesign],
+    story_hint: str = "",
+) -> list[CharacterDesign]:
+    """Put the named protagonist first (e.g. Goldilocks before the bears)."""
+    if len(chars) < 2:
+        return chars
+    blob = " ".join(
+        [
+            story_hint or "",
+            plan.title or "",
+            plan.logline or "",
+            plan.raw_director_notes or "",
+        ]
+    ).lower()
+
+    def score(c: CharacterDesign) -> float:
+        n = (c.name or "").lower().strip()
+        if not n:
+            return -1.0
+        s = 0.0
+        if n in blob:
+            idx = blob.find(n)
+            s += 50 + max(0, 30 - min(idx, 30))
+        for hero in (
+            "goldilocks",
+            "girl",
+            "boy",
+            "child",
+            "kid",
+            "hero",
+            "heroine",
+            "princess",
+            "prince",
+            "main",
+            "protagonist",
+        ):
+            if hero in n:
+                s += 40
+        for dem in ("papa", "mama", "baby", "father", "mother", "brother", "sister"):
+            if dem in n and ("goldilocks" in blob or "girl" in blob or "child" in blob):
+                s -= 25
+        if "bear" in n and "goldilocks" in blob:
+            s -= 15
+        return s
+
+    ranked = sorted(enumerate(chars), key=lambda iv: (-score(iv[1]), iv[0]))
+    if score(ranked[0][1]) > score(chars[0]) + 5:
+        return [c for _, c in ranked]
     return chars
 
 
@@ -369,6 +431,7 @@ class CharacterBoardBuilder:
         plan: ProductionPlan,
         shot: ShotPlan,
         last_frame: Path | None = None,
+        prev_ref_ids: list[str] | None = None,
     ) -> tuple[list[Path], list[dict], list[str]]:
         """
         Pick ≤9 reference images for this shot.
@@ -377,13 +440,24 @@ class CharacterBoardBuilder:
         """
         ensure_character_designs(plan)
         budget = min(R2V_MAX_IMAGES, max(1, self.settings.character_sheet_max_refs_per_shot))
-        use_prev = self.settings.h3_use_prev_shot_ref and last_frame and last_frame.exists()
-        if use_prev:
-            budget = max(1, budget - 1)  # reserve one slot for continuity
 
         wanted_ids = list(shot.ref_character_ids or [])
         if not wanted_ids and plan.characters:
-            wanted_ids = [c.id for c in plan.characters if self._primary_path(c)]
+            # Solo-default to lead only — never auto-expand to full cast (causes leakage)
+            if self._primary_path(plan.characters[0]):
+                wanted_ids = [plan.characters[0].id]
+
+        use_prev = bool(
+            self.settings.h3_use_prev_shot_ref and last_frame and last_frame.exists()
+        )
+        if use_prev and prev_ref_ids is not None:
+            # Skip continuity frame if prior take included cast banned this take
+            curr = set(wanted_ids)
+            prev = set(prev_ref_ids)
+            if prev and not prev.issubset(curr):
+                use_prev = False
+        if use_prev:
+            budget = max(1, budget - 1)  # reserve one slot for continuity
 
         # Lead cast first
         ordered_chars: list[CharacterDesign] = []
@@ -491,7 +565,9 @@ class CharacterBoardBuilder:
             pic_n = len(paths)
             extra.append(
                 f"- Continuity / lighting from previous shot is <Picture {pic_n}> "
-                "(match costume continuity; new camera and action are OK)."
+                "(match costume continuity of ON-SCREEN cast only; "
+                "do not reintroduce anyone not allowed in CAST EXCLUSIVITY; "
+                "new camera and action are OK)."
             )
         return paths, meta, extra
 

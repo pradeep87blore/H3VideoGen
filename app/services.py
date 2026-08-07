@@ -614,18 +614,50 @@ def essentials_report(settings: Settings) -> dict[str, Any]:
 
     ollama_ok = ollama_reachable(settings) if settings.local_llm_enabled else True
     if settings.local_llm_enabled:
+        vision_detail = ""
+        vision_ok = True
+        if ollama_ok:
+            try:
+                from .llm.local_openai import LocalOpenAIBackend
+
+                back = LocalOpenAIBackend(settings)
+                models = back.list_models()
+                has_vision = any(m.get("vision") for m in models)
+                try:
+                    vname = back.resolve_model(images=True)
+                except Exception:
+                    vname = settings.local_llm_vision_model or ""
+                vision_ok = bool(has_vision or (vname and back._name_suggests_vision(vname)))
+                vision_detail = (
+                    f"text={settings.local_llm_model} vision={vname or 'unset'}"
+                    if vision_ok
+                    else f"text={settings.local_llm_model}; no vision model (pull llava)"
+                )
+            except Exception as exc:
+                vision_ok = False
+                vision_detail = f"model probe failed: {exc}"
         services.append(
             {
                 "id": "ollama",
                 "name": "Local LLM (Ollama)",
                 "ok": ollama_ok,
                 "required": False,
-                "detail": settings.local_llm_base_url if ollama_ok else f"Not reachable at {settings.local_llm_base_url}",
+                "detail": (
+                    f"{settings.local_llm_base_url} ({vision_detail})"
+                    if ollama_ok
+                    else f"Not reachable at {settings.local_llm_base_url}"
+                ),
                 "fix": None
                 if ollama_ok
                 else "Start Ollama (`ollama serve`) or enable AUTO_START_OLLAMA — used when Gemini is down.",
             }
         )
+        if ollama_ok and not vision_ok:
+            warnings.append(
+                "Ollama has no vision model — critic frame QA needs "
+                f"`ollama pull {settings.local_llm_vision_model or 'llava'}` "
+                "and LOCAL_LLM_VISION_MODEL for cast exclusivity when Gemini is down."
+            )
         if not ollama_ok and not gemini_ok:
             blocking.append(
                 "Neither Gemini nor local LLM (Ollama) is available — director will use offline templates only."

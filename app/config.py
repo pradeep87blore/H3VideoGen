@@ -11,7 +11,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 ROOT = Path(__file__).resolve().parent.parent
 
 _DEFAULT_GEMINI_FALLBACKS = (
-    "gemini-3.5-flash,gemini-3-flash-preview,gemini-2.0-flash,gemini-flash-latest"
+    "gemini-3.5-flash,gemini-3.6-flash,gemini-3.1-flash-lite,"
+    "gemini-flash-latest,gemini-3-flash-preview,gemini-3.5-flash-lite"
 )
 
 
@@ -57,10 +58,16 @@ class Settings(BaseSettings):
     character_sheet_max_refs_per_shot: int = Field(default=4, alias="CHARACTER_SHEET_MAX_REFS_PER_SHOT")
     # If Gemini stills fail / incomplete, run a short H3 T2V turnaround
     character_sheet_use_h3: bool = Field(default=True, alias="CHARACTER_SHEET_USE_H3")
+    gemini_director_model: str = Field(default="gemini-3.5-flash", alias="GEMINI_DIRECTOR_MODEL")
+    gemini_critic_model: str = Field(default="gemini-3.5-flash", alias="GEMINI_CRITIC_MODEL")
+    gemini_model_fallbacks: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: [m.strip() for m in _DEFAULT_GEMINI_FALLBACKS.split(",") if m.strip()],
+        alias="GEMINI_MODEL_FALLBACKS",
+    )
     gemini_image_models: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             "gemini-3.1-flash-image",
-            "gemini-2.5-flash-image",
+            "gemini-3.1-flash-image-preview",
             "gemini-3-pro-image-preview",
         ],
         alias="GEMINI_IMAGE_MODELS",
@@ -75,19 +82,19 @@ class Settings(BaseSettings):
     max_retakes: int = Field(default=2, alias="MAX_RETAKES")
     critic_pass_threshold: float = Field(default=7.5, alias="CRITIC_PASS_THRESHOLD")
 
-    gemini_director_model: str = Field(default="gemini-3.5-flash", alias="GEMINI_DIRECTOR_MODEL")
-    gemini_critic_model: str = Field(default="gemini-3.5-flash", alias="GEMINI_CRITIC_MODEL")
-    gemini_model_fallbacks: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: [m.strip() for m in _DEFAULT_GEMINI_FALLBACKS.split(",") if m.strip()],
-        alias="GEMINI_MODEL_FALLBACKS",
-    )
-
     # Local OpenAI-compatible server (Ollama default port, also works with LM Studio :1234)
     local_llm_enabled: bool = Field(default=True, alias="LOCAL_LLM_ENABLED")
     local_llm_base_url: str = Field(default="http://127.0.0.1:11434/v1", alias="LOCAL_LLM_BASE_URL")
     local_llm_api_key: str = Field(default="ollama", alias="LOCAL_LLM_API_KEY")
+    # Text planner (director). Keep a fast non-vision model here.
     local_llm_model: str = Field(default="llama3.2", alias="LOCAL_LLM_MODEL")
-    local_llm_timeout_sec: int = Field(default=180, alias="LOCAL_LLM_TIMEOUT_SEC")
+    # Vision critic for frame stills. Required for cast QA when Gemini is down.
+    # Empty → auto-pick any installed vision model (llava, etc.).
+    local_llm_vision_model: str = Field(default="llava", alias="LOCAL_LLM_VISION_MODEL")
+    local_llm_timeout_sec: int = Field(default=300, alias="LOCAL_LLM_TIMEOUT_SEC")
+    local_llm_max_tokens: int = Field(default=2048, alias="LOCAL_LLM_MAX_TOKENS")
+    # Downscale review frames before sending to local VLMs (speed + context).
+    local_llm_vision_max_side: int = Field(default=512, alias="LOCAL_LLM_VISION_MAX_SIDE")
 
     # Provider preference: gemini → local_openai → offline
     llm_fallback_order: Annotated[list[str], NoDecode] = Field(

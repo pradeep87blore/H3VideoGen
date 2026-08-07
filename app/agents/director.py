@@ -25,10 +25,16 @@ Hard constraints for H3 clips:
 - Prefer clear action, readable silhouette, strong scale/emotion for YouTube retention.
 - Write visual prompts as rich production prose a video model can follow.
 - Include character locks so continuity holds across shots.
-- Specify who is ON SCREEN for each shot to avoid “everyone in every frame” leakage.
+- CAST EXCLUSIVITY IS CRITICAL: H3 video models invent extra cast if the prompt
+  names or implies the full ensemble. Prevent this carefully:
+  • ref_character_ids = ONLY character ids physically visible this take (never everyone "for continuity").
+  • character_presence must list who APPEARS and who is ABSENT by name ("Goldilocks alone;
+    Papa/Mama/Baby Bear must not appear: no silhouettes, faces, or bodies anywhere in frame").
+  • visual_prompt for alone/empty-house beats must not stage the absent cast in the background.
+  • When the story is "cottage of the three bears" but only Goldilocks is home, describe
+    empty furniture/set dressing — do NOT show the bears watching or waiting.
 - Define a short list of main CHARACTERS (id C01..) with precise look bible text and
   board_prompt describing a multi-view design sheet (face + body identity for stills).
-- For each shot set ref_character_ids to which character sheet ids appear on screen.
 
 YouTube bar (your job at planning stage):
 - Hook in first shot (3 seconds of attention).
@@ -111,7 +117,11 @@ JSON schema:
   ]
 }}
 
-Characters: max 4 main cast. Every shot that shows a cast member must list their id in ref_character_ids.
+Characters: max 4 main cast. C01 MUST be the story protagonist (e.g. Goldilocks),
+not a supporting ensemble member. Supporting family (bears, etc.) are C02+.
+Every shot that shows a cast member must list their id in ref_character_ids.
+Shots with no living cast use ref_character_ids: [] and character_presence "no living characters on screen; empty set only".
+Do NOT put the full cast in every ref_character_ids "for continuity" — that forces everyone on screen.
 Shot IDs must be S01..S{shot_count:02d} in order.
 Make visual_prompt detailed enough for a diffusion video model.
 """
@@ -133,7 +143,7 @@ Make visual_prompt detailed enough for a diffusion video model.
         if "characters" not in data or not data.get("characters"):
             data["characters"] = []
         plan = ProductionPlan.model_validate(data)
-        ensure_character_designs(plan)
+        ensure_character_designs(plan, story_hint=user_prompt)
 
         # Normalize frames / ids
         shots: list[ShotPlan] = []
@@ -142,9 +152,31 @@ Make visual_prompt detailed enough for a diffusion video model.
             sid = f"S{i+1:02d}"
             frames = _align_frames(s.duration_sec or per_shot)
             refs = [r for r in (s.ref_character_ids or []) if r in known_ids]
+            deduped: list[str] = []
+            for r in refs:
+                if r not in deduped:
+                    deduped.append(r)
+            refs = deduped
+            # Empty refs allowed (empty set / prop-only). Default lead only when cast was omitted.
             if not refs and plan.characters:
-                # default: main character if presence empty or mentions them
-                refs = [plan.characters[0].id]
+                presence_l = (s.character_presence or "").lower()
+                empty_intent = any(
+                    k in presence_l
+                    for k in (
+                        "no character",
+                        "no one",
+                        "empty",
+                        "none on",
+                        "prop only",
+                        "no living",
+                        "just the",  # e.g. just the three bowls
+                    )
+                )
+                if not empty_intent:
+                    refs = [plan.characters[0].id]
+            presence = enforce_character_presence_text(
+                plan, refs, existing=s.character_presence or ""
+            )
             shots.append(
                 ShotPlan(
                     id=sid,
@@ -155,7 +187,7 @@ Make visual_prompt detailed enough for a diffusion video model.
                     visual_prompt=s.visual_prompt,
                     camera=s.camera,
                     audio_notes=s.audio_notes,
-                    character_presence=s.character_presence,
+                    character_presence=presence,
                     ref_character_ids=refs,
                     seed=None,
                 )
@@ -163,6 +195,8 @@ Make visual_prompt detailed enough for a diffusion video model.
         while len(shots) < shot_count:
             i = len(shots)
             frames = _align_frames(per_shot)
+            refs = [plan.characters[0].id] if plan.characters else []
+            presence = enforce_character_presence_text(plan, refs, existing="Story subject only")
             shots.append(
                 ShotPlan(
                     id=f"S{i+1:02d}",
@@ -173,8 +207,8 @@ Make visual_prompt detailed enough for a diffusion video model.
                     visual_prompt=f"{user_prompt}. Continuous cinematic take matching style: {style}",
                     camera="medium, steady push-in",
                     audio_notes="Diegetic ambience",
-                    character_presence="Story subject only",
-                    ref_character_ids=[plan.characters[0].id] if plan.characters else [],
+                    character_presence=presence,
+                    ref_character_ids=refs,
                     seed=None,
                 )
             )
@@ -198,7 +232,14 @@ Make visual_prompt detailed enough for a diffusion video model.
         picture_meta: list[dict] | None = None,
         extra_picture_notes: list[str] | None = None,
     ) -> str:
+        on_ids, off_chars = _cast_split_for_shot(plan, shot, picture_meta, picture_map)
         parts: list[str] = []
+
+        # Hard exclusivity FIRST so the model prioritizes it over story leakage
+        exclusivity = _exclusivity_block(plan, on_ids, off_chars)
+        if exclusivity:
+            parts.append(exclusivity)
+
         if r2v and (picture_meta or picture_map):
             id_lines: list[str] = []
             if picture_meta:
@@ -224,16 +265,19 @@ Make visual_prompt detailed enough for a diffusion video model.
             if id_lines:
                 parts.append(
                     "REFERENCE IDENTITY LOCK (MiniMax H3 R2V multi-view sheet — follow precisely):\n"
-                    "These images are the same character(s) from different angles for identity only.\n"
+                    "These images are ONLY identity for characters already allowed ON SCREEN.\n"
+                    "Do not invent additional cast because other names appear in the story.\n"
                     + "\n".join(id_lines)
                 )
             if extra_picture_notes:
                 parts.append("ADDITIONAL REFS:\n" + "\n".join(extra_picture_notes))
 
+        # Shot-scoped look lock — do NOT paste full-cast character_lock (it causes leakage)
+        lock_lines = _on_screen_look_lock(plan, on_ids)
         parts.extend(
             [
                 plan.style_bible.strip(),
-                f"CHARACTER LOCK: {plan.character_lock}".strip() if plan.character_lock else "",
+                lock_lines,
                 f"COLOR GRADE: {plan.color_grade}".strip() if plan.color_grade else "",
                 f"AUDIO: {plan.audio_bed}. Shot audio: {shot.audio_notes}".strip(),
                 f"SHOT {shot.id} — {shot.name}. Story beat: {shot.beat}.",
@@ -248,3 +292,124 @@ Make visual_prompt detailed enough for a diffusion video model.
                 "DIRECTOR RETAKE NOTES (mandatory fixes from previous take):\n" + critic_notes.strip()
             )
         return "\n\n".join(p for p in parts if p)
+
+
+def _cast_split_for_shot(
+    plan: ProductionPlan,
+    shot: ShotPlan,
+    picture_meta: list[dict] | None,
+    picture_map: dict[str, int] | None,
+) -> tuple[list[str], list[CharacterDesign]]:
+    on: list[str] = []
+    if picture_meta:
+        for m in picture_meta:
+            cid = m.get("character_id")
+            if cid and cid not in on:
+                on.append(str(cid))
+    if not on and picture_map:
+        on = [cid for cid, _ in sorted(picture_map.items(), key=lambda kv: kv[1])]
+    if not on:
+        on = list(shot.ref_character_ids or [])
+    known = {c.id: c for c in plan.characters or []}
+    on = [cid for cid in on if cid in known]
+    off = [c for c in (plan.characters or []) if c.id not in set(on)]
+    return on, off
+
+
+def _on_screen_look_lock(plan: ProductionPlan, on_ids: list[str]) -> str:
+    if not on_ids:
+        return (
+            "CHARACTER LOCK (this take): No living cast members. "
+            "Empty set / props only — do not invent story characters."
+        )
+    lines = [
+        "CHARACTER LOCK (this take ONLY — ignore other cast not listed here):",
+    ]
+    by_id = {c.id: c for c in plan.characters or []}
+    for cid in on_ids:
+        c = by_id.get(cid)
+        if not c:
+            continue
+        look = (c.look or "").strip() or "consistent with identity sheet"
+        lines.append(f"- {c.name} ({cid}): {look}")
+    return "\n".join(lines)
+
+
+def _exclusivity_block(
+    plan: ProductionPlan,
+    on_ids: list[str],
+    off_chars: list[CharacterDesign],
+) -> str:
+    if not plan.characters:
+        return ""
+    by_id = {c.id: c for c in plan.characters}
+    on_names = [by_id[i].name for i in on_ids if i in by_id]
+    lines = [
+        "CAST EXCLUSIVITY (HARD RULE — higher priority than story lore):",
+    ]
+    if on_names:
+        lines.append(
+            "ON SCREEN living characters (ONLY these may appear as people/animals/figures): "
+            + ", ".join(on_names)
+            + "."
+        )
+    else:
+        lines.append(
+            "ON SCREEN living characters: NONE. This is a prop/environment take only."
+        )
+    if off_chars:
+        ban = ", ".join(f"{c.name} ({c.id})" for c in off_chars)
+        lines.append(
+            f"BANNED this take — must not appear in ANY form: {ban}. "
+            "No faces, bodies, silhouettes, shadows cast by them, "
+            "watchers in windows, background cameos, plush stand-ins, or crowd fillers. "
+            "If the story setup mentions their home/items, show empty furniture and set dressing only."
+        )
+    lines.append(
+        "Violation of bans is a failed take. Prefer empty space over inventing banned cast."
+    )
+    return "\n".join(lines)
+
+
+def enforce_character_presence_text(
+    plan: ProductionPlan,
+    ref_ids: list[str],
+    existing: str = "",
+) -> str:
+    """Rewrite/augment presence so absent cast is named explicitly."""
+    by_id = {c.id: c for c in plan.characters or []}
+    on_names = [by_id[i].name for i in ref_ids if i in by_id]
+    off = [c for c in (plan.characters or []) if c.id not in set(ref_ids)]
+    off_names = [c.name for c in off]
+
+    base = (existing or "").strip()
+    # Drop previously auto-appended APPEARS/ABSENT blocks if re-normalizing
+    for marker in ("APPEARS:", "ABSENT (do not show):"):
+        if marker in base:
+            base = base.split(marker)[0].strip(" .;")
+
+    parts: list[str] = []
+    if base:
+        parts.append(base.rstrip(" ."))
+    if on_names:
+        parts.append(f"APPEARS: {', '.join(on_names)} only")
+    else:
+        parts.append("APPEARS: no living cast (empty set / props only)")
+    if off_names:
+        parts.append(
+            f"ABSENT (do not show): {', '.join(off_names)} — "
+            "no silhouettes, faces, bodies, or background watchers"
+        )
+    return ". ".join(parts) + "."
+
+
+def normalize_plan_cast_presence(plan: ProductionPlan) -> ProductionPlan:
+    """Recompute character_presence bans from ref_character_ids (safe on resume)."""
+    if not plan.characters:
+        return plan
+    for shot in plan.shots or []:
+        refs = list(shot.ref_character_ids or [])
+        shot.character_presence = enforce_character_presence_text(
+            plan, refs, existing=shot.character_presence or ""
+        )
+    return plan

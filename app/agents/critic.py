@@ -29,6 +29,9 @@ Score 0–10 on:
 Rules:
 - overall_score < 7.5 → cannot be PASS (use RETAKE or REJECT)
 - text/logos/watermarks → REJECT or RETAKE with fix
+- CAST LEAKAGE is a hard fail: if CHARACTER PRESENCE / ABSENT / CAST EXCLUSIVITY bans a character
+  (e.g. only Goldilocks should appear but Papa/Mama/Baby Bear are visible, even in bg/silhouette),
+  score character_fidelity ≤ 3 and verdict RETAKE. revised_prompt must order their complete removal.
 - wrong characters present → RETAKE
 - photoreal vs style mismatch when style is animated → RETAKE
 - boring empty frame with no story → RETAKE
@@ -69,16 +72,35 @@ class CriticAgent:
                 summary="Cannot review without frames.",
             )
 
+        on_names: list[str] = []
+        ban_names: list[str] = []
+        by_id = {c.id: c for c in (plan.characters or [])}
+        for cid in shot.ref_character_ids or []:
+            if cid in by_id:
+                on_names.append(by_id[cid].name)
+        for c in plan.characters or []:
+            if c.id not in set(shot.ref_character_ids or []):
+                ban_names.append(c.name)
+
+        allowed = ", ".join(on_names) if on_names else "NONE (prop/environment only — no living cast)"
+        banned = ", ".join(ban_names) if ban_names else "(none)"
+
         brief = f"""Review this generated take for YouTube release quality.
 
 TITLE: {plan.title}
 STYLE BIBLE: {plan.style_bible}
-CHARACTER LOCK: {plan.character_lock}
-USER/STYLE CONTEXT already baked into style bible.
+CHARACTER LOCK (production-wide — identity only; not everyone must appear): {plan.character_lock}
 
 SHOT: {shot.id} — {shot.name}
 BEAT: {shot.beat}
 CHARACTER PRESENCE RULES: {shot.character_presence}
+
+CAST CHECKLIST FOR THIS SHOT (use the stills; this is mandatory QA):
+- ALLOWED ON SCREEN: {allowed}
+- BANNED ON SCREEN: {banned}
+If any BANNED character appears (foreground, background, silhouette, window, crowd, substitute figure):
+verdict MUST be RETAKE, character_fidelity ≤ 3, and retake_instructions + revised_prompt must order their complete removal.
+
 INTENDED CAMERA: {shot.camera}
 INTENDED VISUAL PROMPT:
 {shot.visual_prompt}
@@ -123,6 +145,8 @@ JSON schema:
                 "take": take,
                 "frame_paths": existing,
                 "shot_visual": shot.visual_prompt,
+                "allowed_names": on_names,
+                "banned_names": ban_names,
             },
         )
         self.last_provider = result.provider

@@ -6,3 +6,4 @@ outputs/
 .pytest_cache/
 *.mp4
 *.log
+jobs/

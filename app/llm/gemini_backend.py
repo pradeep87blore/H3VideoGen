@@ -14,9 +14,33 @@ def _is_quota_error(exc: BaseException) -> bool:
     return "429" in text or "RESOURCE_EXHAUSTED" in text or "quota" in text.lower()
 
 
+def _is_capacity_error(exc: BaseException) -> bool:
+    """Overload / temporary unavailability (try another model or retry)."""
+    text = str(exc)
+    low = text.lower()
+    return any(
+        token in text or token in low
+        for token in (
+            "503",
+            "UNAVAILABLE",
+            "high demand",
+            "overloaded",
+            "temporarily unavailable",
+            "Server disconnected",
+            "server disconnected",
+            "DeadlineExceeded",
+            "deadline exceeded",
+            "timed out",
+            "timeout",
+            "502",
+            "504",
+        )
+    )
+
+
 def _is_retryable_model_error(exc: BaseException) -> bool:
     text = str(exc)
-    if _is_quota_error(exc):
+    if _is_quota_error(exc) or _is_capacity_error(exc):
         return True
     return any(
         token in text
@@ -100,7 +124,7 @@ class GeminiBackend:
 
         errors: list[str] = []
         for model in models:
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     response = client.models.generate_content(
                         model=model,
@@ -113,10 +137,13 @@ class GeminiBackend:
                     return text, f"gemini:{model}"
                 except Exception as exc:  # noqa: BLE001 — cascade models
                     errors.append(f"{model}: {exc}")
+                    # Permanent problems on this request → stop (bad key, etc.)
                     if not _is_retryable_model_error(exc):
                         raise
-                    if _is_quota_error(exc) and attempt == 0:
-                        time.sleep(_retry_seconds(exc))
+                    # Quota / high demand: brief pause then retry same model once more
+                    if (_is_quota_error(exc) or _is_capacity_error(exc)) and attempt < 2:
+                        time.sleep(_retry_seconds(exc, default=8.0 + attempt * 4.0))
                         continue
+                    # Then try next model in the cascade
                     break
-        raise RuntimeError("All Gemini models failed: " + " | ".join(errors[:4]))
+        raise RuntimeError("All Gemini models failed: " + " | ".join(errors[:6]))

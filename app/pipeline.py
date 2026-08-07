@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from .agents.critic import CriticAgent
-from .agents.director import DirectorAgent
+from .agents.director import DirectorAgent, normalize_plan_cast_presence
 from .agents.voice import VoiceAgent
 from .character_board import CharacterBoardBuilder, ensure_character_designs
 from .comfy_h3 import ComfyError, ComfyH3Client
@@ -137,6 +137,7 @@ class ProductionPipeline:
                 target_duration_sec=req.target_duration_sec,
                 max_shots=req.max_shots,
             )
+            plan = normalize_plan_cast_presence(plan)
             self._check_cancel()
             state.plan = plan
             state.shots = [ShotRecord(plan=s) for s in plan.shots]
@@ -244,6 +245,13 @@ class ProductionPipeline:
             if mode not in ("r2v", "t2v", "auto"):
                 mode = "r2v"
             state.h3_mode = mode
+            if state.plan:
+                state.plan = normalize_plan_cast_presence(state.plan)
+                # Keep shot records in sync with rewritten presence on the plan
+                plan_by_id = {s.id: s for s in state.plan.shots}
+                for rec in state.shots or []:
+                    if rec.plan.id in plan_by_id:
+                        rec.plan = plan_by_id[rec.plan.id]
             state.status = "running"
             self._log(
                 state,
@@ -252,6 +260,35 @@ class ProductionPipeline:
                 f"{len(state.shots)} shots already passed) · H3 mode={mode}",
                 log,
             )
+
+            # Recover "passed" status from on-disk clip files when state was interrupted mid-write
+            for record in state.shots:
+                if record.status == ShotStatus.passed and record.final_video and Path(record.final_video).exists():
+                    continue
+                if record.final_video and Path(record.final_video).exists():
+                    record.status = ShotStatus.passed
+                    continue
+                shots_dir = root / "shots"
+                if shots_dir.is_dir():
+                    sid = record.plan.id
+                    candidates = sorted(
+                        [
+                            p
+                            for p in shots_dir.glob(f"{sid}_*.mp4")
+                            if p.is_file() and p.stat().st_size > 1024
+                        ],
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True,
+                    )
+                    if candidates:
+                        record.final_video = str(candidates[0].resolve())
+                        record.status = ShotStatus.passed
+                        record.error = None
+                        self._log(
+                            state,
+                            f"{sid}: recovered passed clip from disk ({candidates[0].name})",
+                            log,
+                        )
 
             plan = state.plan
             board_dir = Path(state.character_board_dir) if state.character_board_dir else root / "character_board"
@@ -398,6 +435,7 @@ class ProductionPipeline:
         plan = state.plan
         assert plan is not None
         last_frame: Path | None = None
+        last_ref_ids: list[str] | None = None
 
         for idx, record in enumerate(state.shots):
             self._check_cancel()
@@ -408,6 +446,7 @@ class ProductionPipeline:
             ):
                 if record.final_frame and Path(record.final_frame).exists():
                     last_frame = Path(record.final_frame)
+                last_ref_ids = list(record.plan.ref_character_ids or [])
                 self._log(state, f"{record.plan.id} already passed — skip", log)
                 continue
             if record.status == ShotStatus.failed:
@@ -424,8 +463,10 @@ class ProductionPipeline:
                 log,
                 board=board,
                 last_frame=last_frame,
+                prev_ref_ids=last_ref_ids,
                 mode=mode,
             ) or last_frame
+            last_ref_ids = list(record.plan.ref_character_ids or [])
 
         self._check_cancel()
         passed = [r for r in state.shots if r.status == ShotStatus.passed and r.final_video]
@@ -467,6 +508,7 @@ class ProductionPipeline:
         *,
         board: CharacterBoardBuilder | None = None,
         last_frame: Path | None = None,
+        prev_ref_ids: list[str] | None = None,
         mode: str = "r2v",
     ) -> Path | None:
         plan = state.plan
@@ -488,7 +530,7 @@ class ProductionPipeline:
 
             shot_for_prompt = shot.model_copy(update={"visual_prompt": visual_override})
             gen_mode, ref_paths, picture_meta, picture_map, extra_notes = self._resolve_refs(
-                plan, shot, mode, board, last_frame
+                plan, shot, mode, board, last_frame, prev_ref_ids=prev_ref_ids
             )
             render_prompt = self.director.build_render_prompt(
                 plan,
@@ -499,6 +541,20 @@ class ProductionPipeline:
                 picture_meta=picture_meta,
                 extra_picture_notes=extra_notes,
             )
+            # Keep exclusivity in retake notes when critic already complained about cast
+            if take == 1 and (shot.ref_character_ids is not None):
+                off = [
+                    c.name
+                    for c in (plan.characters or [])
+                    if c.id not in set(shot.ref_character_ids or [])
+                ]
+                if off:
+                    self._log(
+                        state,
+                        f"{shot.id}: exclusive cast={shot.ref_character_ids or []} "
+                        f"(banned: {', '.join(off)})",
+                        log,
+                    )
 
             ref_labels = ", ".join(
                 f"P{m.get('picture')}:{m.get('name','?')}/{m.get('pose_id','?')}"
@@ -695,6 +751,7 @@ class ProductionPipeline:
         mode: str,
         board: CharacterBoardBuilder | None,
         last_frame: Path | None,
+        prev_ref_ids: list[str] | None = None,
     ) -> tuple[str, list[Path], list[dict], dict[str, int], list[str]]:
         """Return (mode, ref_paths, picture_meta, picture_map, extra_notes)."""
         if mode == "t2v":
@@ -702,7 +759,9 @@ class ProductionPipeline:
 
         ensure_character_designs(plan)
         if board:
-            paths, meta, extra = board.select_refs_for_shot(plan, shot, last_frame)
+            paths, meta, extra = board.select_refs_for_shot(
+                plan, shot, last_frame, prev_ref_ids=prev_ref_ids
+            )
             picture_map: dict[str, int] = {}
             for m in meta:
                 cid = m.get("character_id")
@@ -720,7 +779,7 @@ class ProductionPipeline:
         extra: list[str] = []
         wanted_ids = list(shot.ref_character_ids or [])
         if not wanted_ids and plan.characters:
-            wanted_ids = [c.id for c in plan.characters if c.image_path]
+            wanted_ids = [plan.characters[0].id] if plan.characters[0].image_path else []
         for cid in wanted_ids:
             char = next((c for c in plan.characters if c.id == cid), None)
             if not char or not char.image_path:
@@ -741,16 +800,21 @@ class ProductionPipeline:
                     "look": (char.look or "")[:160],
                 }
             )
-        if (
+        use_prev = (
             self.settings.h3_use_prev_shot_ref
             and last_frame
             and last_frame.exists()
             and len(paths) < 9
-        ):
-            paths.append(last_frame)
+        )
+        if use_prev and prev_ref_ids is not None:
+            if set(prev_ref_ids) - set(wanted_ids):
+                use_prev = False
+        if use_prev:
+            paths.append(last_frame)  # type: ignore[arg-type]
             extra.append(
                 f"- Continuity / lighting from previous shot is <Picture {len(paths)}> "
-                "(match costume continuity; new camera and action are OK)."
+                "(match costume continuity of ON-SCREEN cast only; "
+                "do not reintroduce banned cast; new camera and action are OK)."
             )
         if paths:
             return "r2v", paths, meta, picture_map, extra

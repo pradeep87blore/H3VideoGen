@@ -48,6 +48,19 @@ class LLMRouter:
                 local_ok = local_health is not None
             except Exception as exc:
                 local_health = {"error": str(exc)}
+        local_models: list[dict] = []
+        vision_model = None
+        text_model = None
+        if local_ok:
+            try:
+                local_models = [
+                    {"id": e["id"], "vision": bool(e.get("vision"))}
+                    for e in self.local.list_models()
+                ]
+                text_model = self.local.resolve_model(images=False)
+                vision_model = self.local.resolve_model(images=True)
+            except Exception as exc:
+                local_health = {**(local_health or {}), "model_resolve_error": str(exc)}
         return {
             "order": self._order(),
             "gemini_key_set": bool(self.settings.gemini_api_key),
@@ -55,6 +68,10 @@ class LLMRouter:
             "local_llm_enabled": self.settings.local_llm_enabled,
             "local_llm_base_url": self.settings.local_llm_base_url,
             "local_llm_model": self.settings.local_llm_model,
+            "local_llm_vision_model": self.settings.local_llm_vision_model,
+            "local_llm_resolved_text_model": text_model,
+            "local_llm_resolved_vision_model": vision_model,
+            "local_llm_models": local_models,
             "local_llm_reachable": local_ok,
             "local_llm_health": local_health,
             "offline_always_available": True,
@@ -102,9 +119,19 @@ class LLMRouter:
                 if name in ("local_openai", "local", "ollama"):
                     if not self.settings.local_llm_enabled:
                         raise RuntimeError("Local LLM disabled")
+                    want_imgs = bool(images)
+                    try:
+                        resolved = self.local.resolve_model(images=want_imgs)
+                    except Exception:
+                        resolved = (
+                            self.settings.local_llm_vision_model
+                            if want_imgs
+                            else self.settings.local_llm_model
+                        )
                     self._emit(
                         f"{purpose}: trying local LLM "
-                        f"{self.settings.local_llm_base_url} model={self.settings.local_llm_model}"
+                        f"{self.settings.local_llm_base_url} model={resolved}"
+                        + (" (vision)" if want_imgs else " (text)")
                     )
                     text, provider = self.local.generate_text(
                         system=system,

@@ -115,27 +115,90 @@ class ComfyH3Client:
                 except Exception:
                     pass
 
-    # ─── upload refs into Comfy input folder ─────────────────────────────
+    def wait_until_ready(self, timeout_sec: float = 180.0, log: Any = None) -> None:
+        """Poll until Comfy answers; optionally start/replace H3 instance via services."""
+        deadline = time.time() + max(15.0, timeout_sec)
+        last_err: Exception | None = None
+        while time.time() < deadline:
+            if self.control and self.control.is_cancelled():
+                raise CancelledError("Cancelled while waiting for ComfyUI")
+            try:
+                self.health()
+                return
+            except Exception as exc:
+                last_err = exc
+            try:
+                from .services import ensure_h3_comfy
+
+                ensure_h3_comfy(self.settings, log=log)
+            except Exception as exc:
+                last_err = exc
+            time.sleep(2.0)
+        raise ComfyError(f"ComfyUI not ready within {timeout_sec:.0f}s: {last_err}")
+
+    def _is_connection_error(self, exc: BaseException) -> bool:
+        msg = str(exc).lower()
+        return any(
+            s in msg
+            for s in (
+                "10054",
+                "10061",
+                "connection reset",
+                "connection refused",
+                "forcibly closed",
+                "connecterror",
+                "readerror",
+                "timed out",
+                "timeout",
+                "server disconnected",
+                "remote end closed",
+                "network is unreachable",
+            )
+        ) or isinstance(exc, (httpx.TransportError, httpx.TimeoutException))
 
     def upload_image(self, path: Path, *, subfolder: str = "H3VideoGen") -> str:
         """Upload local image; returns filename usable by LoadImage."""
         path = Path(path)
         if not path.exists():
             raise ComfyError(f"Reference image missing: {path}")
-        with path.open("rb") as f:
-            files = {
-                "image": (path.name, f, "image/png" if path.suffix.lower() == ".png" else "image/jpeg"),
-            }
-            data = {"overwrite": "true", "subfolder": subfolder, "type": "input"}
-            with httpx.Client(timeout=120.0) as client:
-                r = client.post(f"{self.base}/upload/image", files=files, data=data)
-                if r.status_code >= 400:
-                    raise ComfyError(f"Image upload failed {r.status_code}: {r.text[:1500]}")
-                body = r.json()
-        name = body.get("name") or path.name
-        sub = body.get("subfolder") or subfolder
-        # LoadImage expects relative path under input; include subfolder if present
-        return f"{sub}/{name}" if sub else name
+
+        last_err: Exception | None = None
+        for attempt in range(1, 5):
+            if self.control:
+                self.control.check()
+            try:
+                with path.open("rb") as f:
+                    files = {
+                        "image": (
+                            path.name,
+                            f,
+                            "image/png" if path.suffix.lower() == ".png" else "image/jpeg",
+                        ),
+                    }
+                    data = {"overwrite": "true", "subfolder": subfolder, "type": "input"}
+                    with httpx.Client(timeout=120.0) as client:
+                        r = client.post(f"{self.base}/upload/image", files=files, data=data)
+                        if r.status_code >= 400:
+                            raise ComfyError(f"Image upload failed {r.status_code}: {r.text[:1500]}")
+                        body = r.json()
+                name = body.get("name") or path.name
+                sub = body.get("subfolder") or subfolder
+                return f"{sub}/{name}" if sub else name
+            except CancelledError:
+                raise
+            except Exception as exc:
+                last_err = exc
+                if not self._is_connection_error(exc) and not isinstance(exc, ComfyError):
+                    if not self._is_connection_error(exc):
+                        raise ComfyError(str(exc)) from exc
+                if not self._is_connection_error(exc) and isinstance(exc, ComfyError) and "upload failed" in str(exc).lower():
+                    raise
+                if attempt >= 4:
+                    break
+                self.wait_until_ready(timeout_sec=120.0)
+                time.sleep(min(8, attempt * 2))
+        raise ComfyError(f"Image upload failed after retries: {last_err}")
+
 
     # ─── workflows ───────────────────────────────────────────────────────
 
@@ -384,22 +447,39 @@ class ComfyH3Client:
         if self.control:
             self.control.check()
         payload = {"prompt": workflow, "client_id": client_id or str(uuid.uuid4())}
-        with httpx.Client(timeout=30.0) as client:
-            if self.control and self.control.is_cancelled():
-                raise CancelledError("Generation cancelled before queue")
-            r = client.post(f"{self.base}/prompt", json=payload)
-            if r.status_code >= 400:
-                raise ComfyError(f"Queue failed {r.status_code}: {r.text[:2000]}")
-            data = r.json()
-        if data.get("node_errors"):
-            raise ComfyError(json.dumps(data["node_errors"])[:2000])
-        pid = data.get("prompt_id")
-        if not pid:
-            raise ComfyError(f"No prompt_id: {data}")
-        if self.control:
-            self.control.set_prompt_id(pid)
-            self.control.check()
-        return pid
+        last_err: Exception | None = None
+        for attempt in range(1, 5):
+            if self.control:
+                self.control.check()
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    if self.control and self.control.is_cancelled():
+                        raise CancelledError("Generation cancelled before queue")
+                    r = client.post(f"{self.base}/prompt", json=payload)
+                    if r.status_code >= 400:
+                        raise ComfyError(f"Queue failed {r.status_code}: {r.text[:2000]}")
+                    data = r.json()
+                if data.get("node_errors"):
+                    raise ComfyError(json.dumps(data["node_errors"])[:2000])
+                pid = data.get("prompt_id")
+                if not pid:
+                    raise ComfyError(f"No prompt_id: {data}")
+                if self.control:
+                    self.control.set_prompt_id(pid)
+                    self.control.check()
+                return pid
+            except CancelledError:
+                raise
+            except ComfyError:
+                raise
+            except Exception as exc:
+                last_err = exc
+                if not self._is_connection_error(exc) or attempt >= 4:
+                    raise ComfyError(f"Queue failed: {exc}") from exc
+                self.wait_until_ready(timeout_sec=180.0)
+                time.sleep(min(8, attempt * 2))
+        raise ComfyError(f"Queue failed after retries: {last_err}")
+
 
     def _output_search_roots(self) -> list[Path]:
         """Possible folders where SaveVideo writes (depends on Comfy extra paths)."""
@@ -531,42 +611,67 @@ class ComfyH3Client:
         """
         Generate a clip.
         Returns (path, prompt_id, mode_used) where mode_used is 'r2v' or 't2v'.
+        Retries the whole submit when Comfy drops the connection before the job starts.
         """
-        if self.control:
-            self.control.check()
-        mode = (mode or "t2v").lower()
-        refs = [Path(p) for p in (ref_image_paths or []) if p and Path(p).exists()]
+        last_err: Exception | None = None
+        for attempt in range(1, 4):
+            if self.control:
+                self.control.check()
+            try:
+                self.wait_until_ready(timeout_sec=90.0 if attempt > 1 else 15.0)
+                mode_l = (mode or "t2v").lower()
+                refs = [Path(p) for p in (ref_image_paths or []) if p and Path(p).exists()]
 
-        if mode == "r2v" and refs:
-            uploaded = [
-                self.upload_image(p, subfolder=f"H3VideoGen/{project_tag}") for p in refs[:9]
-            ]
-            wf = self.build_r2v_workflow(
-                prompt,
-                length=length,
-                seed=seed,
-                filename_prefix=filename_prefix,
-                ref_comfy_names=uploaded,
-            )
-            used = "r2v"
-        else:
-            first_name = None
-            if first_frame_path and Path(first_frame_path).exists():
-                first_name = self.upload_image(
-                    Path(first_frame_path), subfolder=f"H3VideoGen/{project_tag}"
-                )
-            wf = self.build_t2v_workflow(
-                prompt,
-                length=length,
-                seed=seed,
-                filename_prefix=filename_prefix,
-                first_frame_comfy_name=first_name,
-            )
-            used = "t2v"
+                if mode_l == "r2v" and refs:
+                    uploaded = [
+                        self.upload_image(p, subfolder=f"H3VideoGen/{project_tag}") for p in refs[:9]
+                    ]
+                    wf = self.build_r2v_workflow(
+                        prompt,
+                        length=length,
+                        seed=seed,
+                        filename_prefix=filename_prefix,
+                        ref_comfy_names=uploaded,
+                    )
+                    used = "r2v"
+                else:
+                    first_name = None
+                    if first_frame_path and Path(first_frame_path).exists():
+                        first_name = self.upload_image(
+                            Path(first_frame_path), subfolder=f"H3VideoGen/{project_tag}"
+                        )
+                    wf = self.build_t2v_workflow(
+                        prompt,
+                        length=length,
+                        seed=seed,
+                        filename_prefix=filename_prefix,
+                        first_frame_comfy_name=first_name,
+                    )
+                    used = "t2v"
 
-        prompt_id = self.queue(wf)
-        item = self.wait(prompt_id)
-        path = self.resolve_output_path(item)
-        if self.control:
-            self.control.set_prompt_id(None)
-        return path, prompt_id, used
+                prompt_id = self.queue(wf)
+                item = self.wait(prompt_id)
+                path = self.resolve_output_path(item)
+                if self.control:
+                    self.control.set_prompt_id(None)
+                return path, prompt_id, used
+            except CancelledError:
+                raise
+            except Exception as exc:
+                last_err = exc
+                # Missing nodes / bad graph should not be retried forever
+                if isinstance(exc, ComfyError) and (
+                    "missing_node" in str(exc).lower()
+                    or "node_errors" in str(exc).lower()
+                    or "queue failed 400" in str(exc).lower()
+                ):
+                    raise
+                if not self._is_connection_error(exc) and not (
+                    isinstance(exc, ComfyError) and self._is_connection_error(exc)
+                ):
+                    raise
+                if attempt >= 3:
+                    break
+                time.sleep(min(12, attempt * 3))
+                self.wait_until_ready(timeout_sec=180.0)
+        raise ComfyError(f"Generate failed after retries: {last_err}") from last_err

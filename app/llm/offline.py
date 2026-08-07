@@ -125,8 +125,14 @@ def critic_review_json(
     take: int,
     frame_paths: list[Path],
     shot_visual: str,
+    allowed_names: list[str] | None = None,
+    banned_names: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Heuristic review of extracted frames when no vision LLM is available."""
+    """Heuristic review of extracted frames when no vision LLM is available.
+
+    Cannot verify cast exclusivity from pixels — when banned cast is configured,
+    score character_fidelity low so we do not fake-PASS leakages.
+    """
     if not frame_paths:
         return {
             "shot_id": shot_id,
@@ -210,10 +216,26 @@ def critic_review_json(
         issues.append("Suspiciously small frame resolution")
         polish -= 1.5
 
-    character = 7.6
     style_c = 7.6
     motion = 7.5
     story = 7.5
+
+    bans = [n for n in (banned_names or []) if str(n).strip()]
+    allows = [n for n in (allowed_names or []) if str(n).strip()]
+    # Pixel heuristics cannot verify cast exclusivity — fail closed when bans apply.
+    if bans:
+        character = 4.0
+        issues.append(
+            "Offline critic cannot verify cast exclusivity for banned: "
+            + ", ".join(bans[:8])
+            + " — will not fake-PASS (use LOCAL_LLM_VISION_MODEL=llava)"
+        )
+    else:
+        character = 7.4
+        if allows:
+            strengths.append(
+                f"Cast exclusivity not applied offline (allowed: {', '.join(allows[:4])})"
+            )
 
     overall = (composition + character + style_c + motion + story + polish) / 6.0
     overall = max(0.0, min(10.0, round(overall, 2)))
@@ -225,6 +247,14 @@ def critic_review_json(
             "Increase subject clarity and lighting; strengthen composition; "
             "avoid empty/blank frames; keep style consistent with bible."
         )
+        if bans:
+            retake = (
+                "Cannot offline-verify cast. Ensure render only shows: "
+                + (", ".join(allows) if allows else "no living cast")
+                + ". Completely remove banned: "
+                + ", ".join(bans)
+                + ". Prefer enabling LOCAL_LLM_VISION_MODEL=llava for real QA."
+            )
         summary = "Offline heuristic critic found quality concerns: " + "; ".join(issues[:3])
     else:
         # Offline cannot truly QA character identity — pass when stats look sane.
