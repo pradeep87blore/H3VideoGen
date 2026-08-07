@@ -1,0 +1,665 @@
+{
+  "source": "ai_video_styles_reference_sheet.png",
+  "items": [
+    {
+      "slug": "photorealistic",
+      "box": [
+        281,
+        45,
+        437,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\photorealistic.jpg"
+    },
+    {
+      "slug": "cinematic",
+      "box": [
+        472,
+        45,
+        628,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\cinematic.jpg"
+    },
+    {
+      "slug": "pixar-style-3d",
+      "box": [
+        663,
+        45,
+        819,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\pixar-style-3d.jpg"
+    },
+    {
+      "slug": "dreamworks-style",
+      "box": [
+        854,
+        45,
+        1010,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\dreamworks-style.jpg"
+    },
+    {
+      "slug": "stylized-3d",
+      "box": [
+        1045,
+        45,
+        1201,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\stylized-3d.jpg"
+    },
+    {
+      "slug": "claymation",
+      "box": [
+        1236,
+        45,
+        1392,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\claymation.jpg"
+    },
+    {
+      "slug": "stop-motion",
+      "box": [
+        1426,
+        45,
+        1582,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\stop-motion.jpg"
+    },
+    {
+      "slug": "lego-animation",
+      "box": [
+        1617,
+        45,
+        1773,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\lego-animation.jpg"
+    },
+    {
+      "slug": "low-poly",
+      "box": [
+        1808,
+        45,
+        1964,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\low-poly.jpg"
+    },
+    {
+      "slug": "voxel-blocky",
+      "box": [
+        1999,
+        45,
+        2155,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\voxel-blocky.jpg"
+    },
+    {
+      "slug": "wireframe",
+      "box": [
+        2190,
+        45,
+        2346,
+        176
+      ],
+      "path": "web\\static\\style_thumbs\\wireframe.jpg"
+    },
+    {
+      "slug": "rag-doll-plush",
+      "box": [
+        281,
+        288,
+        437,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\rag-doll-plush.jpg"
+    },
+    {
+      "slug": "felt-fabric",
+      "box": [
+        472,
+        288,
+        628,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\felt-fabric.jpg"
+    },
+    {
+      "slug": "crochet-knitted",
+      "box": [
+        663,
+        288,
+        819,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\crochet-knitted.jpg"
+    },
+    {
+      "slug": "origami-paper",
+      "box": [
+        854,
+        288,
+        1010,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\origami-paper.jpg"
+    },
+    {
+      "slug": "paper-cutout",
+      "box": [
+        1045,
+        288,
+        1201,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\paper-cutout.jpg"
+    },
+    {
+      "slug": "pop-up-book",
+      "box": [
+        1236,
+        288,
+        1392,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\pop-up-book.jpg"
+    },
+    {
+      "slug": "wooden-toy",
+      "box": [
+        1426,
+        288,
+        1582,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\wooden-toy.jpg"
+    },
+    {
+      "slug": "puppet-marionette",
+      "box": [
+        1617,
+        288,
+        1773,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\puppet-marionette.jpg"
+    },
+    {
+      "slug": "sand-art",
+      "box": [
+        1808,
+        288,
+        1964,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\sand-art.jpg"
+    },
+    {
+      "slug": "paper-quilling",
+      "box": [
+        1999,
+        288,
+        2155,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\paper-quilling.jpg"
+    },
+    {
+      "slug": "stained-glass",
+      "box": [
+        2190,
+        288,
+        2346,
+        418
+      ],
+      "path": "web\\static\\style_thumbs\\stained-glass.jpg"
+    },
+    {
+      "slug": "watercolor-painting",
+      "box": [
+        281,
+        530,
+        437,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\watercolor-painting.jpg"
+    },
+    {
+      "slug": "oil-painting",
+      "box": [
+        472,
+        530,
+        628,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\oil-painting.jpg"
+    },
+    {
+      "slug": "ink-drawing",
+      "box": [
+        663,
+        530,
+        819,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\ink-drawing.jpg"
+    },
+    {
+      "slug": "pencil-sketch",
+      "box": [
+        854,
+        530,
+        1010,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\pencil-sketch.jpg"
+    },
+    {
+      "slug": "colored-pencil",
+      "box": [
+        1045,
+        530,
+        1201,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\colored-pencil.jpg"
+    },
+    {
+      "slug": "anime",
+      "box": [
+        1236,
+        530,
+        1392,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\anime.jpg"
+    },
+    {
+      "slug": "studio-ghibli-inspired",
+      "box": [
+        1426,
+        530,
+        1582,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\studio-ghibli-inspired.jpg"
+    },
+    {
+      "slug": "comic-book",
+      "box": [
+        1617,
+        530,
+        1773,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\comic-book.jpg"
+    },
+    {
+      "slug": "manga",
+      "box": [
+        1808,
+        530,
+        1964,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\manga.jpg"
+    },
+    {
+      "slug": "flat-vector",
+      "box": [
+        1999,
+        530,
+        2155,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\flat-vector.jpg"
+    },
+    {
+      "slug": "whiteboard-animation",
+      "box": [
+        2190,
+        530,
+        2346,
+        661
+      ],
+      "path": "web\\static\\style_thumbs\\whiteboard-animation.jpg"
+    },
+    {
+      "slug": "fantasy-painting",
+      "box": [
+        281,
+        773,
+        437,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\fantasy-painting.jpg"
+    },
+    {
+      "slug": "dark-fantasy",
+      "box": [
+        472,
+        773,
+        628,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\dark-fantasy.jpg"
+    },
+    {
+      "slug": "cyberpunk-neon",
+      "box": [
+        663,
+        773,
+        819,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\cyberpunk-neon.jpg"
+    },
+    {
+      "slug": "steampunk",
+      "box": [
+        854,
+        773,
+        1010,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\steampunk.jpg"
+    },
+    {
+      "slug": "solarpunk",
+      "box": [
+        1045,
+        773,
+        1201,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\solarpunk.jpg"
+    },
+    {
+      "slug": "isometric",
+      "box": [
+        1236,
+        773,
+        1392,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\isometric.jpg"
+    },
+    {
+      "slug": "blueprint-style",
+      "box": [
+        1426,
+        773,
+        1582,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\blueprint-style.jpg"
+    },
+    {
+      "slug": "ancient-mythological-indian-art",
+      "box": [
+        1617,
+        773,
+        1773,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\ancient-mythological-indian-art.jpg"
+    },
+    {
+      "slug": "ukiyo-e",
+      "box": [
+        1808,
+        773,
+        1964,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\ukiyo-e.jpg"
+    },
+    {
+      "slug": "chinese-ink-wash",
+      "box": [
+        1999,
+        773,
+        2155,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\chinese-ink-wash.jpg"
+    },
+    {
+      "slug": "miniature-painting",
+      "box": [
+        2190,
+        773,
+        2346,
+        903
+      ],
+      "path": "web\\static\\style_thumbs\\miniature-painting.jpg"
+    },
+    {
+      "slug": "fortnite-style",
+      "box": [
+        281,
+        1015,
+        437,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\fortnite-style.jpg"
+    },
+    {
+      "slug": "zelda-inspired",
+      "box": [
+        472,
+        1015,
+        628,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\zelda-inspired.jpg"
+    },
+    {
+      "slug": "genshin-inspired",
+      "box": [
+        663,
+        1015,
+        819,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\genshin-inspired.jpg"
+    },
+    {
+      "slug": "league-of-legends-splash-art",
+      "box": [
+        854,
+        1015,
+        1010,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\league-of-legends-splash-art.jpg"
+    },
+    {
+      "slug": "diablo-style",
+      "box": [
+        1045,
+        1015,
+        1201,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\diablo-style.jpg"
+    },
+    {
+      "slug": "pixel-art",
+      "box": [
+        1236,
+        1015,
+        1392,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\pixel-art.jpg"
+    },
+    {
+      "slug": "retro-16-bit",
+      "box": [
+        1426,
+        1015,
+        1582,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\retro-16-bit.jpg"
+    },
+    {
+      "slug": "isometric-rpg",
+      "box": [
+        1617,
+        1015,
+        1773,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\isometric-rpg.jpg"
+    },
+    {
+      "slug": "concept-art",
+      "box": [
+        1808,
+        1015,
+        1964,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\concept-art.jpg"
+    },
+    {
+      "slug": "matte-painting",
+      "box": [
+        1999,
+        1015,
+        2155,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\matte-painting.jpg"
+    },
+    {
+      "slug": "sci-fi-illustration",
+      "box": [
+        2190,
+        1015,
+        2346,
+        1146
+      ],
+      "path": "web\\static\\style_thumbs\\sci-fi-illustration.jpg"
+    },
+    {
+      "slug": "neon-line-art",
+      "box": [
+        281,
+        1258,
+        437,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\neon-line-art.jpg"
+    },
+    {
+      "slug": "holographic",
+      "box": [
+        472,
+        1258,
+        628,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\holographic.jpg"
+    },
+    {
+      "slug": "liquid-paint",
+      "box": [
+        663,
+        1258,
+        819,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\liquid-paint.jpg"
+    },
+    {
+      "slug": "smoke-art",
+      "box": [
+        854,
+        1258,
+        1010,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\smoke-art.jpg"
+    },
+    {
+      "slug": "fractal-art",
+      "box": [
+        1045,
+        1258,
+        1201,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\fractal-art.jpg"
+    },
+    {
+      "slug": "kaleidoscope",
+      "box": [
+        1236,
+        1258,
+        1392,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\kaleidoscope.jpg"
+    },
+    {
+      "slug": "surreal-dreamscape",
+      "box": [
+        1426,
+        1258,
+        1582,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\surreal-dreamscape.jpg"
+    },
+    {
+      "slug": "ice-sculpture",
+      "box": [
+        1617,
+        1258,
+        1773,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\ice-sculpture.jpg"
+    },
+    {
+      "slug": "crystal-world",
+      "box": [
+        1808,
+        1258,
+        1964,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\crystal-world.jpg"
+    },
+    {
+      "slug": "double-exposure",
+      "box": [
+        1999,
+        1258,
+        2155,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\double-exposure.jpg"
+    },
+    {
+      "slug": "abstract-geometry",
+      "box": [
+        2190,
+        1258,
+        2346,
+        1388
+      ],
+      "path": "web\\static\\style_thumbs\\abstract-geometry.jpg"
+    }
+  ]
+}

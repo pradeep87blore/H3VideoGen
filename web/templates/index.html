@@ -51,8 +51,20 @@
         <textarea id="prompt" rows="5" placeholder="e.g. A Himalayan monk discovers a glowing seed that grows into a city overnight…"></textarea>
       </label>
       <label class="field">
-        <span>Visual style <em>(separate from story)</em></span>
-        <textarea id="style" rows="3">Premium 3D animated fairy-tale, soft stylized characters, cinematic golden-hour lighting, coherent single art direction, YouTube-polished, no photoreal live-action mix, no on-screen text</textarea>
+        <span class="style-label-row">
+          Visual style <em>(separate from story)</em>
+          <button type="button" class="btn ghost sm" id="btn-open-styles" title="Browse style library">Browse styles</button>
+        </span>
+        <div id="style-picked" class="style-picked hidden" aria-live="polite">
+          <img id="style-picked-thumb" alt="" width="72" height="45" />
+          <div class="style-picked-meta">
+            <strong id="style-picked-name">—</strong>
+            <span id="style-picked-cat" class="hint"></span>
+          </div>
+          <button type="button" class="btn ghost sm" id="btn-clear-style" title="Clear library selection">Clear</button>
+        </div>
+        <textarea id="style" rows="3" placeholder="Pick a style from the library or write a custom style bible…">Premium 3D animated fairy-tale, soft stylized characters, cinematic golden-hour lighting, coherent single art direction, YouTube-polished, no photoreal live-action mix, no on-screen text</textarea>
+        <input type="hidden" id="style_slug" value="" />
       </label>
       <div class="row">
         <label class="field grow">
@@ -151,6 +163,24 @@
     </section>
   </main>
 
-  <script src="/static/app.js?v=13"></script>
+  <div id="style-modal" class="style-modal hidden" role="dialog" aria-modal="true" aria-labelledby="style-modal-title">
+    <div class="style-modal-backdrop" data-close-styles></div>
+    <div class="style-modal-panel">
+      <div class="style-modal-head">
+        <div>
+          <h2 id="style-modal-title">Style library</h2>
+          <p class="hint" id="style-modal-sub">Select a look — full style prompt fills the style field.</p>
+        </div>
+        <button type="button" class="btn ghost sm" data-close-styles aria-label="Close">Close</button>
+      </div>
+      <div class="style-modal-toolbar">
+        <input type="search" id="style-search" class="style-search" placeholder="Search styles…" autocomplete="off" />
+        <div id="style-cat-filters" class="style-cat-filters" role="tablist"></div>
+      </div>
+      <div id="style-grid" class="style-grid"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=15"></script>
 </body>
 </html>

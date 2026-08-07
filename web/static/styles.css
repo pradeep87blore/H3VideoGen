@@ -500,6 +500,177 @@ textarea:focus, input:focus, select:focus { outline: 1px solid rgba(226,163,92,0
 .badge.running, .badge.planning, .badge.assembling { color: var(--accent); border-color: rgba(226,163,92,0.35); }
 .badge.queued, .badge.cancelling { color: var(--muted); border-color: rgba(154,149,140,0.4); }
 
+/* Style library picker */
+.style-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+.style-picked {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 0.45rem 0 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid rgba(226,163,92,0.35);
+  border-radius: 0.55rem;
+  background: rgba(226,163,92,0.08);
+}
+.style-picked.hidden { display: none; }
+.style-picked img {
+  width: 72px;
+  height: 45px;
+  object-fit: cover;
+  border-radius: 0.35rem;
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.style-picked-meta { flex: 1; min-width: 0; }
+.style-picked-meta strong { display: block; font-size: 0.92rem; }
+.style-picked-meta .hint { display: block; margin-top: 0.1rem; font-size: 0.75rem; }
+
+.style-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.style-modal.hidden { display: none; }
+.style-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.72);
+  backdrop-filter: blur(4px);
+}
+.style-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(1080px, 96vw);
+  max-height: min(88vh, 900px);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #171922 0%, #101218 100%);
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+  overflow: hidden;
+}
+.style-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.15rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+.style-modal-head h2 { margin: 0; font-size: 1.15rem; }
+.style-modal-toolbar {
+  padding: 0.75rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  border-bottom: 1px solid var(--line);
+}
+.style-search {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.35);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+.style-search:focus {
+  outline: none;
+  border-color: rgba(226,163,92,0.55);
+}
+.style-cat-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.style-cat-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.25);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.style-cat-btn.active {
+  color: var(--text);
+  border-color: rgba(226,163,92,0.5);
+  background: rgba(226,163,92,0.12);
+}
+.style-grid {
+  overflow: auto;
+  padding: 0.9rem 1.1rem 1.2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 0.7rem;
+  align-content: start;
+}
+.style-card {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.28);
+  border-radius: 0.65rem;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+.style-card:hover {
+  border-color: rgba(226,163,92,0.45);
+  transform: translateY(-1px);
+}
+.style-card.selected {
+  border-color: rgba(226,163,92,0.75);
+  box-shadow: 0 0 0 1px rgba(226,163,92,0.35);
+}
+.style-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  background: #0a0b0e;
+}
+.style-card-body {
+  padding: 0.45rem 0.5rem 0.55rem;
+}
+.style-card-body strong {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.style-card-body span {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.66rem;
+  color: var(--muted);
+  line-height: 1.2;
+}
+.style-grid-empty {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 2rem 0;
+  text-align: center;
+}
+
 .job-tabs-block { margin-bottom: 0.35rem; }
 .job-tabs {
   display: flex;

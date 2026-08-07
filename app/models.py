@@ -172,6 +172,10 @@ class GenerateRequest(BaseModel):
         default="Premium 3D animated fairy-tale, cinematic lighting, YouTube-ready",
         description="Visual style direction separate from the story prompt",
     )
+    style_slug: Optional[str] = Field(
+        default=None,
+        description="Optional library style slug (metadata; full style text lives in style)",
+    )
     target_duration_sec: float = Field(default=60.0, ge=10, le=180)
     max_shots: int = Field(default=12, ge=2, le=24)
     max_retakes: Optional[int] = None

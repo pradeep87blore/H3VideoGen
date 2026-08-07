@@ -1,0 +1,2053 @@
+{
+  "version": "1.0",
+  "title": "AI Video Styles Reference Library",
+  "total_styles": 66,
+  "styles": [
+    {
+      "category": "3D Styles",
+      "name": "Photorealistic",
+      "slug": "photorealistic",
+      "description": "Photorealistic is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Photorealistic style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "Cinematic",
+      "slug": "cinematic",
+      "description": "Cinematic is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Cinematic style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "Pixar Style 3D",
+      "slug": "pixar-style-3d",
+      "description": "Pixar Style 3D is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Pixar Style 3D style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "DreamWorks Style",
+      "slug": "dreamworks-style",
+      "description": "DreamWorks Style is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in DreamWorks Style style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "Stylized 3D",
+      "slug": "stylized-3d",
+      "description": "Stylized 3D is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Stylized 3D style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "Claymation",
+      "slug": "claymation",
+      "description": "Claymation is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Claymation style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "Stop Motion",
+      "slug": "stop-motion",
+      "description": "Stop Motion is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Stop Motion style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "LEGO Animation",
+      "slug": "lego-animation",
+      "description": "LEGO Animation is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in LEGO Animation style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "Low Poly",
+      "slug": "low-poly",
+      "description": "Low Poly is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Low Poly style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "Voxel / Blocky",
+      "slug": "voxel-blocky",
+      "description": "Voxel / Blocky is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Voxel / Blocky style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "3D Styles",
+      "name": "Wireframe",
+      "slug": "wireframe",
+      "description": "Wireframe is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Wireframe style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Rag Doll / Plush",
+      "slug": "rag-doll-plush",
+      "description": "Rag Doll / Plush is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Rag Doll / Plush style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Felt Fabric",
+      "slug": "felt-fabric",
+      "description": "Felt Fabric is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Felt Fabric style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Crochet / Knitted",
+      "slug": "crochet-knitted",
+      "description": "Crochet / Knitted is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Crochet / Knitted style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Origami Paper",
+      "slug": "origami-paper",
+      "description": "Origami Paper is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Origami Paper style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Paper Cutout",
+      "slug": "paper-cutout",
+      "description": "Paper Cutout is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Paper Cutout style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Pop-up Book",
+      "slug": "pop-up-book",
+      "description": "Pop-up Book is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Pop-up Book style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Wooden Toy",
+      "slug": "wooden-toy",
+      "description": "Wooden Toy is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Wooden Toy style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Puppet / Marionette",
+      "slug": "puppet-marionette",
+      "description": "Puppet / Marionette is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Puppet / Marionette style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Sand Art",
+      "slug": "sand-art",
+      "description": "Sand Art is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Sand Art style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Paper Quilling",
+      "slug": "paper-quilling",
+      "description": "Paper Quilling is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Paper Quilling style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Handmade / Craft Styles",
+      "name": "Stained Glass",
+      "slug": "stained-glass",
+      "description": "Stained Glass is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Stained Glass style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Watercolor Painting",
+      "slug": "watercolor-painting",
+      "description": "Watercolor Painting is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Watercolor Painting style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Oil Painting",
+      "slug": "oil-painting",
+      "description": "Oil Painting is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Oil Painting style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Ink Drawing",
+      "slug": "ink-drawing",
+      "description": "Ink Drawing is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Ink Drawing style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Pencil Sketch",
+      "slug": "pencil-sketch",
+      "description": "Pencil Sketch is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Pencil Sketch style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Colored Pencil",
+      "slug": "colored-pencil",
+      "description": "Colored Pencil is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Colored Pencil style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Anime",
+      "slug": "anime",
+      "description": "Anime is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Anime style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Studio Ghibli Inspired",
+      "slug": "studio-ghibli-inspired",
+      "description": "Studio Ghibli Inspired is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Studio Ghibli Inspired style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Comic Book",
+      "slug": "comic-book",
+      "description": "Comic Book is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Comic Book style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Manga",
+      "slug": "manga",
+      "description": "Manga is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Manga style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Flat Vector",
+      "slug": "flat-vector",
+      "description": "Flat Vector is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Flat Vector style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "2D Illustration Styles",
+      "name": "Whiteboard Animation",
+      "slug": "whiteboard-animation",
+      "description": "Whiteboard Animation is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Whiteboard Animation style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Fantasy Painting",
+      "slug": "fantasy-painting",
+      "description": "Fantasy Painting is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Fantasy Painting style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Dark Fantasy",
+      "slug": "dark-fantasy",
+      "description": "Dark Fantasy is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Dark Fantasy style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Cyberpunk Neon",
+      "slug": "cyberpunk-neon",
+      "description": "Cyberpunk Neon is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Cyberpunk Neon style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Steampunk",
+      "slug": "steampunk",
+      "description": "Steampunk is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Steampunk style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Solarpunk",
+      "slug": "solarpunk",
+      "description": "Solarpunk is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Solarpunk style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Isometric",
+      "slug": "isometric",
+      "description": "Isometric is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Isometric style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Blueprint Style",
+      "slug": "blueprint-style",
+      "description": "Blueprint Style is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Blueprint Style style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Ancient / Mythological Indian Art",
+      "slug": "ancient-mythological-indian-art",
+      "description": "Ancient / Mythological Indian Art is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Ancient / Mythological Indian Art style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Ukiyo-e",
+      "slug": "ukiyo-e",
+      "description": "Ukiyo-e is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Ukiyo-e style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Chinese Ink Wash",
+      "slug": "chinese-ink-wash",
+      "description": "Chinese Ink Wash is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Chinese Ink Wash style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Themed / Genre Styles",
+      "name": "Miniature Painting",
+      "slug": "miniature-painting",
+      "description": "Miniature Painting is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Miniature Painting style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Fortnite Style",
+      "slug": "fortnite-style",
+      "description": "Fortnite Style is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Fortnite Style style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Zelda Inspired",
+      "slug": "zelda-inspired",
+      "description": "Zelda Inspired is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Zelda Inspired style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Genshin Inspired",
+      "slug": "genshin-inspired",
+      "description": "Genshin Inspired is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Genshin Inspired style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "League of Legends Splash Art",
+      "slug": "league-of-legends-splash-art",
+      "description": "League of Legends Splash Art is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in League of Legends Splash Art style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Diablo Style",
+      "slug": "diablo-style",
+      "description": "Diablo Style is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Diablo Style style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Pixel Art",
+      "slug": "pixel-art",
+      "description": "Pixel Art is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Pixel Art style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Retro 16-bit",
+      "slug": "retro-16-bit",
+      "description": "Retro 16-bit is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Retro 16-bit style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Isometric RPG",
+      "slug": "isometric-rpg",
+      "description": "Isometric RPG is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Isometric RPG style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Concept Art",
+      "slug": "concept-art",
+      "description": "Concept Art is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Concept Art style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Matte Painting",
+      "slug": "matte-painting",
+      "description": "Matte Painting is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Matte Painting style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Game / Digital Styles",
+      "name": "Sci-Fi Illustration",
+      "slug": "sci-fi-illustration",
+      "description": "Sci-Fi Illustration is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Sci-Fi Illustration style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Neon Line Art",
+      "slug": "neon-line-art",
+      "description": "Neon Line Art is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Neon Line Art style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Holographic",
+      "slug": "holographic",
+      "description": "Holographic is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Holographic style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Liquid Paint",
+      "slug": "liquid-paint",
+      "description": "Liquid Paint is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Liquid Paint style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Smoke Art",
+      "slug": "smoke-art",
+      "description": "Smoke Art is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Smoke Art style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Fractal Art",
+      "slug": "fractal-art",
+      "description": "Fractal Art is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Fractal Art style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Kaleidoscope",
+      "slug": "kaleidoscope",
+      "description": "Kaleidoscope is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Kaleidoscope style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Surreal Dreamscape",
+      "slug": "surreal-dreamscape",
+      "description": "Surreal Dreamscape is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Surreal Dreamscape style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Ice Sculpture",
+      "slug": "ice-sculpture",
+      "description": "Ice Sculpture is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Ice Sculpture style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Crystal World",
+      "slug": "crystal-world",
+      "description": "Crystal World is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Crystal World style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Double Exposure",
+      "slug": "double-exposure",
+      "description": "Double Exposure is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Double Exposure style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    },
+    {
+      "category": "Special / Experimental Styles",
+      "name": "Abstract Geometry",
+      "slug": "abstract-geometry",
+      "description": "Abstract Geometry is a distinctive visual style emphasizing its characteristic artistic language, materials, shapes, lighting, textures, and composition. Use consistent styling across all elements for cohesive AI-generated images or videos.",
+      "visual_characteristics": [
+        "consistent artistic language",
+        "recognizable silhouettes",
+        "cohesive color palette",
+        "style-appropriate textures",
+        "high visual consistency"
+      ],
+      "lighting": "Use lighting appropriate to the style, emphasizing mood and readability.",
+      "materials": "Style-dependent materials and surface properties.",
+      "color_palette": "Choose colors traditionally associated with this style.",
+      "camera_style": "Use framing, depth of field, and focal length appropriate for the visual style.",
+      "animation_style": "Motion should reinforce the visual identity of the style.",
+      "ideal_for": [
+        "AI images",
+        "AI videos",
+        "illustrations",
+        "storytelling"
+      ],
+      "negative_keywords": [
+        "mixed styles",
+        "inconsistent textures",
+        "off-model design",
+        "poor lighting"
+      ],
+      "sample_prompt": "A beautiful scene rendered entirely in Abstract Geometry style with cohesive materials, accurate textures, cinematic composition, high detail, consistent lighting, and professional-quality art."
+    }
+  ]
+}

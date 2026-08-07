@@ -618,7 +618,8 @@ async function openProject(id) {
 }
 
 function formPayload() {
-  return {
+  const slug = ($("style_slug") && $("style_slug").value.trim()) || "";
+  const payload = {
     prompt: $("prompt").value.trim(),
     style: $("style").value.trim(),
     target_duration_sec: Number($("duration").value || 60),
@@ -628,7 +629,196 @@ function formPayload() {
     auto_assemble: true,
     seed_base: 42,
   };
+  if (slug) payload.style_slug = slug;
+  return payload;
 }
+
+/* ---------- Style library picker ---------- */
+let styleLibrary = null;
+let styleFilterCat = "all";
+let styleSearchQ = "";
+
+function openStyleModal() {
+  const modal = $("style-modal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  loadStyleLibrary()
+    .then(() => {
+      renderStyleFilters();
+      renderStyleGrid();
+      $("style-search")?.focus();
+    })
+    .catch((e) => {
+      appendLog("Style library error: " + (e.message || e));
+      closeStyleModal();
+    });
+}
+
+function closeStyleModal() {
+  const modal = $("style-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+async function loadStyleLibrary() {
+  if (styleLibrary && styleLibrary.styles?.length) return styleLibrary;
+  const r = await fetch("/api/styles");
+  if (!r.ok) throw new Error("Could not load style library");
+  styleLibrary = await r.json();
+  return styleLibrary;
+}
+
+function renderStyleFilters() {
+  const el = $("style-cat-filters");
+  if (!el || !styleLibrary) return;
+  const cats = ["all", ...(styleLibrary.categories || [])];
+  el.innerHTML = cats
+    .map((c) => {
+      const label = c === "all" ? "All" : c.replace(/ Styles$/i, "");
+      const active = styleFilterCat === c ? " active" : "";
+      return `<button type="button" class="style-cat-btn${active}" data-cat="${escapeHtml(
+        c
+      )}">${escapeHtml(label)}</button>`;
+    })
+    .join("");
+  el.querySelectorAll("button[data-cat]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      styleFilterCat = btn.dataset.cat || "all";
+      renderStyleFilters();
+      renderStyleGrid();
+    });
+  });
+}
+
+function filteredStyles() {
+  if (!styleLibrary?.styles) return [];
+  const q = styleSearchQ.trim().toLowerCase();
+  return styleLibrary.styles.filter((s) => {
+    if (styleFilterCat !== "all" && s.category !== styleFilterCat) return false;
+    if (!q) return true;
+    const hay = `${s.name} ${s.category} ${s.slug} ${s.description || ""}`.toLowerCase();
+    return hay.includes(q);
+  });
+}
+
+function renderStyleGrid() {
+  const el = $("style-grid");
+  if (!el) return;
+  const selected = ($("style_slug") && $("style_slug").value) || "";
+  const list = filteredStyles();
+  if (!list.length) {
+    el.innerHTML = '<p class="style-grid-empty">No styles match that filter.</p>';
+    return;
+  }
+  el.innerHTML = list
+    .map((s) => {
+      const sel = s.slug === selected ? " selected" : "";
+      const cat = (s.category || "").replace(/ Styles$/i, "");
+      return `<button type="button" class="style-card${sel}" data-slug="${escapeHtml(
+        s.slug
+      )}" title="${escapeHtml(s.name)}">
+        <img src="${escapeHtml(s.thumb_url)}?v=3" alt="" loading="lazy" />
+        <div class="style-card-body">
+          <strong>${escapeHtml(s.name)}</strong>
+          <span>${escapeHtml(cat)}</span>
+        </div>
+      </button>`;
+    })
+    .join("");
+  el.querySelectorAll("button[data-slug]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const slug = btn.dataset.slug;
+      const style = styleLibrary.styles.find((x) => x.slug === slug);
+      if (style) applyLibraryStyle(style);
+      closeStyleModal();
+    });
+  });
+}
+
+function applyLibraryStyle(style) {
+  if ($("style")) $("style").value = style.style_prompt || style.sample_prompt || "";
+  if ($("style_slug")) $("style_slug").value = style.slug || "";
+  const picked = $("style-picked");
+  if (picked) {
+    picked.classList.remove("hidden");
+    if ($("style-picked-thumb")) {
+      $("style-picked-thumb").src = (style.thumb_url || "") + "?v=3";
+      $("style-picked-thumb").alt = style.name || "";
+    }
+    if ($("style-picked-name")) $("style-picked-name").textContent = style.name || style.slug;
+    if ($("style-picked-cat")) $("style-picked-cat").textContent = style.category || "";
+  }
+  appendLog(`Style locked: ${style.name || style.slug}`);
+  try {
+    sessionStorage.setItem(
+      "h3vg_style",
+      JSON.stringify({ slug: style.slug, name: style.name, thumb_url: style.thumb_url })
+    );
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function clearLibraryStyle() {
+  if ($("style_slug")) $("style_slug").value = "";
+  $("style-picked")?.classList.add("hidden");
+  try {
+    sessionStorage.removeItem("h3vg_style");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function restorePickedStyleChip() {
+  try {
+    const raw = sessionStorage.getItem("h3vg_style");
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (!s?.slug) return;
+    if ($("style_slug")) $("style_slug").value = s.slug;
+    const picked = $("style-picked");
+    if (picked) {
+      picked.classList.remove("hidden");
+      if ($("style-picked-thumb") && s.thumb_url) {
+        $("style-picked-thumb").src = s.thumb_url + "?v=3";
+        $("style-picked-thumb").alt = s.name || "";
+      }
+      if ($("style-picked-name")) $("style-picked-name").textContent = s.name || s.slug;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+$("btn-open-styles")?.addEventListener("click", async () => {
+  try {
+    openStyleModal();
+  } catch (e) {
+    appendLog("Style library error: " + (e.message || e));
+  }
+});
+
+document.querySelectorAll("[data-close-styles]").forEach((el) => {
+  el.addEventListener("click", closeStyleModal);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("style-modal")?.classList.contains("hidden")) {
+    closeStyleModal();
+  }
+});
+$("style-search")?.addEventListener("input", (e) => {
+  styleSearchQ = e.target.value || "";
+  renderStyleGrid();
+});
+$("btn-clear-style")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  clearLibraryStyle();
+  appendLog("Style library selection cleared (custom text kept).");
+});
+restorePickedStyleChip();
 
 $("btn-plan").addEventListener("click", async () => {
   const body = formPayload();

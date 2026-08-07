@@ -28,6 +28,7 @@ from .services import (
     essentials_report,
     ollama_reachable,
 )
+from .style_library import get_style, styles_for_api, build_style_prompt
 
 ROOT = Path(__file__).resolve().parent.parent
 settings = get_settings()
@@ -188,6 +189,35 @@ async def plan_only(req: DirectorOnlyRequest):
         return plan.model_dump()
     except Exception as e:
         raise HTTPException(500, str(e)) from e
+
+
+@app.get("/api/styles")
+async def list_style_library():
+    """Style reference library with composed prompts + thumbnail URLs."""
+    try:
+        return styles_for_api()
+    except Exception as e:
+        raise HTTPException(500, str(e)) from e
+
+
+@app.get("/api/styles/{slug}")
+async def style_detail(slug: str):
+    st = get_style(slug)
+    if not st:
+        raise HTTPException(404, f"Style not found: {slug}")
+    from .style_library import _slugify as style_slugify
+
+    sslug = style_slugify(str(st.get("slug") or st.get("name") or slug))
+    return {
+        "slug": sslug,
+        "name": st.get("name"),
+        "category": st.get("category"),
+        "description": st.get("description"),
+        "style_prompt": build_style_prompt(st),
+        "sample_prompt": st.get("sample_prompt"),
+        "thumb_url": f"/static/style_thumbs/{sslug}.jpg",
+        "raw": st,
+    }
 
 
 def _thumb_rel_path(project_id: str, image_path: str | None, settings: Settings) -> str | None:
@@ -730,6 +760,12 @@ def _run_resume_job(
 async def generate(req: GenerateRequest):
     if not req.prompt.strip():
         raise HTTPException(400, "Prompt is required")
+
+    # Resolve library slug → full style prompt when provided
+    if req.style_slug and (not req.style or not req.style.strip()):
+        st = get_style(req.style_slug)
+        if st:
+            req.style = build_style_prompt(st)
 
     temp_id = f"pending_{uuid.uuid4().hex[:12]}"
     preview = req.prompt.strip().replace("\n", " ")
