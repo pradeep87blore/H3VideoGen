@@ -45,10 +45,11 @@ class ComfyH3Client:
             r.raise_for_status()
             return r.json()
 
-    def h3_capability(self, timeout: float = 60.0) -> dict[str, Any]:
+    def h3_capability(self, timeout: float = 12.0) -> dict[str, Any]:
         """
         Whether this Comfy instance can run MiniMax H3 graphs.
         A different app on the same port often answers /system_stats but lacks H3 nodes.
+        Keep timeout modest so health checks cannot freeze the API for a full minute.
         """
         try:
             oi = self.object_info(timeout=timeout)

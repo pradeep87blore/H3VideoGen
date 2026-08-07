@@ -30,6 +30,7 @@ from .models import (
     CriticVerdict,
     normalize_narrative_mode,
 )
+from .scene_still import generate_scene_still
 from .services import ensure_runtime_services, comfy_reachable
 
 LogFn = Callable[[str], None]
@@ -1096,6 +1097,62 @@ class ProductionPipeline:
                 f"P{m.get('picture')}:{m.get('name','?')}/{m.get('pose_id','?')}"
                 for m in (picture_meta or [])
             ) or "none"
+
+            # --- Pre-clip still gate (cheap) → full H3 only after still PASS or soft skip ---
+            first_frame: Path | None = None
+            if self.settings.preclip_still_enabled and (
+                (self.settings.preclip_still_mode or "auto").lower()
+                not in ("none", "off", "disabled")
+            ):
+                still_ok, critic_notes, visual_override, first_frame = self._preclip_still_gate(
+                    state=state,
+                    record=record,
+                    plan=plan,
+                    shot=shot,
+                    take=take,
+                    seed=seed,
+                    take_dir=take_dir,
+                    gen_mode=gen_mode,
+                    ref_paths=ref_paths,
+                    picture_map=picture_map,
+                    picture_meta=picture_meta,
+                    extra_notes=extra_notes,
+                    critic_notes=critic_notes,
+                    visual_override=visual_override,
+                    log=log,
+                )
+                shot_for_prompt = shot.model_copy(update={"visual_prompt": visual_override})
+                render_prompt = self.director.build_render_prompt(
+                    plan,
+                    shot_for_prompt,
+                    critic_notes,
+                    r2v=(gen_mode == "r2v"),
+                    picture_map=picture_map,
+                    picture_meta=picture_meta,
+                    extra_picture_notes=extra_notes,
+                )
+                if not still_ok and self.settings.preclip_require_pass:
+                    # Skip expensive H3; treat as video retake note carry-forward
+                    self._log(
+                        state,
+                        f"{shot.id} take {take}: preclip still never PASSED — "
+                        f"skipping full H3 (PRECLIP_REQUIRE_PASS=true)",
+                        log,
+                    )
+                    if take > max_retakes:
+                        record.status = ShotStatus.failed
+                        record.error = critic_notes or "Preclip still failed all attempts"
+                        self._finish_shot_timing(
+                            state,
+                            record,
+                            shot_key,
+                            status="error",
+                            detail="preclip still failed",
+                        )
+                        return accepted_frame
+                    record.status = ShotStatus.retake
+                    continue
+
             self._log(
                 state,
                 f"{shot.id} take {take}: H3 {gen_mode.upper()} "
@@ -1104,6 +1161,15 @@ class ProductionPipeline:
             )
 
             prefix = f"video/H3VideoGen/{state.project_id}/{shot.id}_t{take}"
+            use_ff = (
+                first_frame
+                if (
+                    first_frame
+                    and self.settings.preclip_use_as_first_frame
+                    and gen_mode == "t2v"
+                )
+                else None
+            )
             try:
                 src, prompt_id, used_mode = self.comfy.generate(
                     render_prompt,
@@ -1112,6 +1178,7 @@ class ProductionPipeline:
                     filename_prefix=prefix,
                     mode=gen_mode,
                     ref_image_paths=ref_paths,
+                    first_frame_path=use_ff,
                     project_tag=state.project_id,
                 )
             except CancelledError:
@@ -1130,12 +1197,21 @@ class ProductionPipeline:
                         t2v_prompt = self.director.build_render_prompt(
                             plan, shot_for_prompt, critic_notes, r2v=False
                         )
+                        t2v_ff = (
+                            first_frame
+                            if (
+                                first_frame
+                                and self.settings.preclip_use_as_first_frame
+                            )
+                            else None
+                        )
                         src, prompt_id, used_mode = self.comfy.generate(
                             t2v_prompt,
                             length=shot.length_frames,
                             seed=seed,
                             filename_prefix=prefix + "_t2v",
                             mode="t2v",
+                            first_frame_path=t2v_ff,
                             project_tag=state.project_id,
                         )
                         render_prompt = t2v_prompt
@@ -1308,6 +1384,153 @@ class ProductionPipeline:
             state, record, shot_key, status="error", detail="exhausted takes"
         )
         return accepted_frame
+
+    def _preclip_still_gate(
+        self,
+        *,
+        state: ProjectState,
+        record: ShotRecord,
+        plan: ProductionPlan,
+        shot: ShotPlan,
+        take: int,
+        seed: int,
+        take_dir: Path,
+        gen_mode: str,
+        ref_paths: list[Path],
+        picture_map: dict,
+        picture_meta: list,
+        extra_notes: list[str],
+        critic_notes: str,
+        visual_override: str,
+        log: LogFn | None,
+    ) -> tuple[bool, str, str, Path | None]:
+        """
+        Generate + critic preview stills before full H3.
+
+        Returns (passed_or_soft_ok, critic_notes, visual_override, approved_still_path).
+        Soft-ok: stills failed/unavailable but PRECLIP_REQUIRE_PASS is false → proceed to video.
+        """
+        max_still = int(self.settings.preclip_max_retakes)
+        notes = critic_notes
+        visual = visual_override
+        best_still: Path | None = None
+        best_score = -1.0
+        root = self._project_dir(state.project_id)
+        reviews_dir = root / "reviews"
+        reviews_dir.mkdir(parents=True, exist_ok=True)
+        any_still = False
+
+        for s_try in range(1, max_still + 2):
+            if self.control:
+                self.control.check()
+            shot_for_prompt = shot.model_copy(update={"visual_prompt": visual})
+            render_prompt = self.director.build_render_prompt(
+                plan,
+                shot_for_prompt,
+                notes,
+                r2v=(gen_mode == "r2v"),
+                picture_map=picture_map,
+                picture_meta=picture_meta,
+                extra_picture_notes=extra_notes,
+            )
+            out_stem = take_dir / f"preview_t{take}_s{s_try}"
+            self._log(
+                state,
+                f"{shot.id} take {take}: preclip still {s_try}/{max_still + 1}…",
+                log,
+            )
+            still = generate_scene_still(
+                self.settings,
+                plan=plan,
+                shot=shot_for_prompt,
+                out_path=out_stem,
+                render_prompt=render_prompt,
+                critic_notes=notes,
+                seed=seed + s_try * 11,
+                comfy=self.comfy,
+                gen_mode=gen_mode,
+                ref_image_paths=ref_paths,
+                project_tag=state.project_id,
+                log=lambda m: self._log(state, m, log),
+            )
+            if not still or not still.exists():
+                self._log(
+                    state,
+                    f"{shot.id} take {take}: preclip still {s_try} unavailable — "
+                    f"{'continue soft' if not self.settings.preclip_require_pass else 'no image'}",
+                    log,
+                )
+                # No image: stop trying more stills in this cycle
+                break
+
+            any_still = True
+            pre_review = self.critic.review(
+                plan,
+                shot_for_prompt,
+                [still],
+                take=take,
+                video_meta={
+                    "phase": "preclip_still",
+                    "still_try": s_try,
+                    "still_path": str(still),
+                },
+                render_prompt_used=render_prompt,
+            )
+            record.reviews.append(pre_review)
+            (reviews_dir / f"{shot.id}_t{take}_preclip_s{s_try}.json").write_text(
+                pre_review.model_dump_json(indent=2), encoding="utf-8"
+            )
+            self._log(
+                state,
+                f"{shot.id} preclip critic ({self.critic.last_provider or '?'}): "
+                f"{pre_review.verdict.value} score={pre_review.overall_score} — "
+                f"{pre_review.summary[:140]}",
+                log,
+            )
+            if (pre_review.overall_score or 0) >= best_score:
+                best_score = pre_review.overall_score or 0
+                best_still = still
+
+            if pre_review.verdict == CriticVerdict.pass_:
+                if pre_review.revised_prompt:
+                    visual = pre_review.revised_prompt
+                if (pre_review.retake_instructions or "").strip():
+                    notes = pre_review.retake_instructions.strip()
+                self._log(
+                    state,
+                    f"{shot.id} take {take}: preclip still PASSED — proceeding to full H3",
+                    log,
+                )
+                return True, notes, visual, best_still
+
+            notes = pre_review.retake_instructions or pre_review.summary or notes
+            if pre_review.revised_prompt:
+                visual = pre_review.revised_prompt
+            if s_try <= max_still:
+                self._log(
+                    state,
+                    f"{shot.id} preclip RETAKE: {notes[:180]}",
+                    log,
+                )
+
+        # Exhausted or no image
+        if any_still and best_still:
+            self._log(
+                state,
+                f"{shot.id} take {take}: preclip stills exhausted "
+                f"(best_score={best_score}); "
+                f"{'blocking H3' if self.settings.preclip_require_pass else 'proceeding to H3 soft'}",
+                log,
+            )
+            return (not self.settings.preclip_require_pass), notes, visual, best_still
+
+        # Generator unavailable — never block video when we couldn't even make a still
+        self._log(
+            state,
+            f"{shot.id} take {take}: preclip skipped (no still generated) — full H3 as usual",
+            log,
+        )
+        return True, notes, visual, None
 
     def _resolve_refs(
         self,

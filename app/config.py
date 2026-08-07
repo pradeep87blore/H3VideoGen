@@ -81,6 +81,19 @@ class Settings(BaseSettings):
     default_length_frames: int = Field(default=124, alias="DEFAULT_LENGTH_FRAMES")
     max_retakes: int = Field(default=2, alias="MAX_RETAKES")
     critic_pass_threshold: float = Field(default=7.5, alias="CRITIC_PASS_THRESHOLD")
+    # Pre-clip still gate: generate a cheap scene still + critic before full H3 video
+    preclip_still_enabled: bool = Field(default=True, alias="PRECLIP_STILL_ENABLED")
+    # auto | gemini | h3_probe | none
+    preclip_still_mode: str = Field(default="auto", alias="PRECLIP_STILL_MODE")
+    # Still attempts per video take (initial + retakes → max+1 stills)
+    preclip_max_retakes: int = Field(default=2, alias="PRECLIP_MAX_RETAKES", ge=0, le=6)
+    preclip_critic_threshold: float = Field(default=7.0, alias="PRECLIP_CRITIC_THRESHOLD")
+    # If true, skip full H3 when stills never PASS within budget (carry notes to next video take)
+    preclip_require_pass: bool = Field(default=False, alias="PRECLIP_REQUIRE_PASS")
+    # Short H3 clip length when using h3_probe for stills
+    preclip_h3_length_frames: int = Field(default=25, alias="PRECLIP_H3_LENGTH_FRAMES", ge=9, le=80)
+    # Feed approved still as T2V first_frame when generating t2v
+    preclip_use_as_first_frame: bool = Field(default=True, alias="PRECLIP_USE_AS_FIRST_FRAME")
     # How many generation jobs may run at once (1 = serial queue; raise carefully on VRAM)
     max_parallel_jobs: int = Field(default=1, alias="MAX_PARALLEL_JOBS", ge=1, le=8)
 

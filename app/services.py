@@ -33,18 +33,43 @@ def comfy_reachable(settings: Settings, timeout: float = 3.0) -> bool:
         return False
 
 
-def comfy_h3_status(settings: Settings, timeout: float = 45.0) -> dict[str, Any]:
-    """Probe MiniMax H3 nodes on the configured Comfy base URL."""
-    if not comfy_reachable(settings, timeout=min(3.0, timeout)):
-        return {
+_h3_status_cache: dict[str, Any] = {"ts": 0.0, "value": None, "key": ""}
+_H3_STATUS_TTL_SEC = 20.0
+
+
+def comfy_h3_status(
+    settings: Settings,
+    timeout: float = 8.0,
+    *,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """Probe MiniMax H3 nodes on the configured Comfy base URL (short, cached for health)."""
+    import time as _time
+
+    cache_key = f"{settings.comfy_base_url}|{timeout}"
+    now = _time.time()
+    if (
+        use_cache
+        and _h3_status_cache.get("key") == cache_key
+        and _h3_status_cache.get("value") is not None
+        and now - float(_h3_status_cache.get("ts") or 0) < _H3_STATUS_TTL_SEC
+    ):
+        return dict(_h3_status_cache["value"])
+
+    if not comfy_reachable(settings, timeout=min(2.0, timeout)):
+        out = {
             "ok": False,
             "reachable": False,
             "missing_nodes": ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo"],
             "error": f"Unreachable at {settings.comfy_base_url}",
         }
+        _h3_status_cache.update({"ts": now, "value": out, "key": cache_key})
+        return dict(out)
     from .comfy_h3 import ComfyH3Client
 
-    return ComfyH3Client(settings).h3_capability(timeout=timeout)
+    out = ComfyH3Client(settings).h3_capability(timeout=timeout)
+    _h3_status_cache.update({"ts": now, "value": out, "key": cache_key})
+    return dict(out)
 
 
 def ollama_reachable(settings: Settings, timeout: float = 3.0) -> bool:

@@ -74,6 +74,27 @@ def _critic_system(mode: str) -> str:
     return CRITIC_SYSTEM_CHARACTER
 
 
+CRITIC_SYSTEM_PRECLIP_STILL = """You are reviewing a PRE-CLIP KEYFRAME / STORYBOARD STILL — not a finished video.
+This image is a cheap preflight before expensive video generation.
+
+Score 0–10 on:
+- composition (framing, subject readability)
+- character_fidelity (cast presence / identity rules when applicable)
+- style_consistency (matches style bible)
+- story_clarity (does this beat read as a frozen moment?)
+- youtube_polish (artifacts, mush, weird anatomy, text leakage)
+
+For motion_readability: score neutral-high (7–8) unless the still completely fails to imply the
+intended action (pose unreadable). Do NOT fail solely for lack of motion.
+
+Rules:
+- overall_score < threshold → RETAKE (do not PASS)
+- CAST LEAKAGE / wrong banned characters → hard RETAKE
+- style mismatch, empty unreadable frame → RETAKE
+- Always provide retake_instructions and revised_prompt for the next still/video prompt
+Return ONLY JSON."""
+
+
 class CriticAgent:
     def __init__(self, settings: Settings, log: LogFn | None = None):
         self.settings = settings
@@ -116,7 +137,15 @@ class CriticAgent:
         allowed = ", ".join(on_names) if on_names else "NONE (prop/environment only — no living cast)"
         banned = ", ".join(ban_names) if ban_names else "(none)"
 
-        brief = f"""Review this generated take for YouTube release quality.
+        meta = video_meta or {}
+        is_preclip = str(meta.get("phase") or "") == "preclip_still"
+        phase_label = (
+            "PRE-CLIP KEYFRAME (storyboard still — not final video)"
+            if is_preclip
+            else "generated take for YouTube release quality"
+        )
+
+        brief = f"""Review this {phase_label}.
 
 TITLE: {plan.title}
 STYLE BIBLE: {plan.style_bible}
@@ -140,9 +169,10 @@ RENDER PROMPT USED (truncated ok):
 {render_prompt_used[:2500]}
 
 TECHNICAL META:
-{json.dumps(video_meta or {}, indent=2)}
+{json.dumps(meta, indent=2)}
 
 TAKE NUMBER: {take}
+{"PRECLIP: focus on composition, cast, style, story beat. Soft on pure motion." if is_preclip else ""}
 
 JSON schema:
 {{
@@ -167,8 +197,13 @@ JSON schema:
 }}
 """
 
+        if is_preclip:
+            system = CRITIC_SYSTEM_PRECLIP_STILL
+        else:
+            system = _critic_system(getattr(plan, "narrative_mode", None) or "character")
+
         result = self.llm.critic_review_payload(
-            system=_critic_system(getattr(plan, "narrative_mode", None) or "character"),
+            system=system,
             user=brief,
             images=existing,
             offline_kwargs={
@@ -195,15 +230,23 @@ JSON schema:
 
         review = CriticReview.model_validate(data)
 
-        # Enforce harsh threshold locally
-        if review.overall_score < self.settings.critic_pass_threshold:
+        # Enforce harsh threshold locally (preclip can use a slightly lower bar)
+        threshold = (
+            float(self.settings.preclip_critic_threshold)
+            if is_preclip
+            else float(self.settings.critic_pass_threshold)
+        )
+        if review.overall_score < threshold:
             if review.verdict == CriticVerdict.pass_:
                 review.verdict = CriticVerdict.retake
                 review.youtube_ready = False
                 review.issues = list(review.issues) + [
-                    f"Score {review.overall_score} below threshold {self.settings.critic_pass_threshold}"
+                    f"Score {review.overall_score} below threshold {threshold}"
                 ]
-        if review.verdict == CriticVerdict.pass_ and review.overall_score < 8.0:
+        if is_preclip:
+            # youtube_ready only applies to finished clips
+            review.youtube_ready = False
+        elif review.verdict == CriticVerdict.pass_ and review.overall_score < 8.0:
             review.youtube_ready = False
 
         return review

@@ -1,7 +1,9 @@
 """FastAPI app: UI + API for H3VideoGen."""
 from __future__ import annotations
 
+import asyncio
 import threading
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -89,6 +91,7 @@ async def index(request: Request):
             "enable_voice": settings.enable_voice,
             "comfy_url": settings.comfy_base_url,
             "critic_threshold": settings.critic_pass_threshold,
+            "preclip_still_enabled": settings.preclip_still_enabled,
             "max_parallel_jobs": _effective_parallel(),
         },
     )
@@ -96,15 +99,29 @@ async def index(request: Request):
 
 @app.get("/api/health")
 async def health():
-    comfy_ok = comfy_reachable(settings)
+    """
+    Status + essentials. Runs off the event loop so long Comfy probes
+    cannot freeze queue/jobs UI while a generation is using Comfy.
+    """
+    return await asyncio.to_thread(_health_snapshot)
+
+
+def _health_snapshot() -> dict[str, Any]:
+    comfy_ok = comfy_reachable(settings, timeout=2.0)
     comfy_info: Any = None
     h3_info: Any = None
     err = None
     if comfy_ok:
         try:
+            # Short probe; h3 capability is cached to avoid stampeding object_info
+            from .services import comfy_h3_status
+
             client = ComfyH3Client(settings)
-            comfy_info = client.health()
-            h3_info = client.h3_capability()
+            try:
+                comfy_info = client.health()
+            except Exception as e:
+                comfy_info = {"error": str(e)}
+            h3_info = comfy_h3_status(settings, timeout=8.0, use_cache=True)
             if settings.comfy_require_h3_nodes and not h3_info.get("ok"):
                 miss = ", ".join(h3_info.get("missing_nodes") or [])
                 err = f"H3 nodes missing ({miss})"
@@ -117,8 +134,19 @@ async def health():
 
     from .llm import LLMRouter
 
-    llm_status = LLMRouter(settings).status()
-    essentials = essentials_report(settings)
+    try:
+        llm_status = LLMRouter(settings).status()
+    except Exception as e:
+        llm_status = {"error": str(e)}
+    try:
+        essentials = essentials_report(settings)
+    except Exception as e:
+        essentials = {
+            "ready_for_generate": False,
+            "blocking": [f"Health check error: {e}"],
+            "services": [],
+            "wait_limit_sec": settings.essentials_wait_sec,
+        }
     with _lock:
         running = any(_is_running_status(v.get("status")) for v in _jobs.values())
         cancel_any = any(c.is_cancelled() for c in _controls.values())
@@ -149,8 +177,8 @@ async def health():
         "heartbeat": {
             "interval_sec": 10,
             "checked_at": checked_at,
-            "ready_for_generate": essentials.get("ready_for_generate", False),
-            "tools": essentials.get("services") or [],
+            "ready_for_generate": (essentials or {}).get("ready_for_generate", False),
+            "tools": (essentials or {}).get("services") or [],
         },
     }
 
@@ -465,20 +493,41 @@ def _pump_queue() -> None:
                 control.bind_thread(threading.current_thread())
                 try:
                     task(control)
+                except Exception as exc:  # noqa: BLE001
+                    # Belts-and-suspenders if task didn't record its own error
+                    with _lock:
+                        j = _jobs.get(key) or {}
+                        st = (j.get("status") or "").lower()
+                        if st in ("", "queued", "running", "planning", "generating", "reviewing", "assembling"):
+                            j["status"] = "error"
+                            j["last_message"] = str(exc)
+                            logs = list(j.get("log") or [])
+                            logs.append(f"Worker crashed: {exc}")
+                            logs.append(traceback.format_exc()[-1500:])
+                            j["log"] = logs[-500:]
+                            j["job_key"] = key
+                            _jobs[key] = j
+                            pid = j.get("project_id")
+                            if pid:
+                                _jobs[str(pid)] = j
                 finally:
                     try:
                         control.set_prompt_id(None)
                         control.bind_thread(None)
                     except Exception:
                         pass
-                    reset_job_control(token)
+                    try:
+                        reset_job_control(token)
+                    except Exception:
+                        pass
                     with _lock:
                         _workers.pop(key, None)
                         _controls.pop(key, None)
+                    # Start next queued job without holding the lock (avoid re-entry stalls)
                     try:
                         _pump_queue()
                     except Exception:
-                        pass
+                        traceback.print_exc()
 
             t = threading.Thread(target=_runner, name=f"h3-job-{job_key[:24]}", daemon=True)
             _workers[job_key] = t
