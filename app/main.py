@@ -44,7 +44,13 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Restore durable queue on boot; flush on clean shutdown."""
+    """Install missing AI_ROOT prereqs, restore queue; flush queue on shutdown."""
+    try:
+        from .prereq_install import start_bootstrap_background
+
+        start_bootstrap_background(settings)
+    except Exception:
+        traceback.print_exc()
     try:
         await asyncio.to_thread(_restore_queue_from_disk)
     except Exception:
@@ -199,6 +205,7 @@ def _health_snapshot() -> dict[str, Any]:
         "workers_alive": workers_alive,
         "queue_depth": qdepth,
         "essentials": essentials,
+        "bootstrap": _bootstrap_snapshot(),
         "heartbeat": {
             "interval_sec": 10,
             "checked_at": checked_at,
@@ -206,6 +213,45 @@ def _health_snapshot() -> dict[str, Any]:
             "tools": (essentials or {}).get("services") or [],
         },
     }
+
+
+def _bootstrap_snapshot() -> dict[str, Any]:
+    try:
+        from .prereq_install import bootstrap_status, scan_prereqs
+
+        st = bootstrap_status()
+        if not st.get("done") and not st.get("running"):
+            # Idle — attach a lightweight scan for UI
+            try:
+                scan = scan_prereqs(settings)
+                st = {**st, "scan": scan.to_dict()}
+            except Exception as e:
+                st = {**st, "scan_error": str(e)}
+        return st
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/bootstrap")
+async def bootstrap_get():
+    """Prerequisite scan / install progress under AI_ROOT."""
+    return await asyncio.to_thread(_bootstrap_snapshot)
+
+
+@app.post("/api/bootstrap")
+async def bootstrap_run(force: bool = False):
+    """Run (or re-run) AI_ROOT prerequisite install on a background thread."""
+    from .prereq_install import ensure_all_prereqs, start_bootstrap_background, bootstrap_status
+
+    if force:
+        def _run() -> dict[str, Any]:
+            return ensure_all_prereqs(settings, force=True).to_dict()
+
+        # Force is blocking in a worker thread so CLI-like install can complete
+        report = await asyncio.to_thread(_run)
+        return {"ok": report.get("ok"), "report": report, "status": bootstrap_status()}
+    started = start_bootstrap_background(settings)
+    return {"ok": True, "started": started, "status": bootstrap_status()}
 
 
 @app.post("/api/services/ensure")

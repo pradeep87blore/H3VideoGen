@@ -88,6 +88,15 @@ if not exist "%~dp0.env" (
   echo [3/4] .env found.
 )
 
+echo [2.5/4] Checking AI tools / models under E:\AI (installs if missing)...
+"%VENV_PY%" run.py bootstrap
+if errorlevel 1 (
+  echo [WARNING] Some prerequisites are still missing — Generate may fail until they finish.
+  echo           Re-run: .venv\Scripts\python run.py bootstrap
+) else (
+  echo       Prerequisites look ready.
+)
+
 REM ---- Port already in use? open browser and exit ----
 netstat -ano 2>nul | findstr /R /C:":%PORT% .*LISTENING" >nul 2>&1
 if not errorlevel 1 (

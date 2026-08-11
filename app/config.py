@@ -174,6 +174,24 @@ class Settings(BaseSettings):
     # Max time to wait for essential tools (ComfyUI, etc.) before failing with a clear prompt
     essentials_wait_sec: int = Field(default=300, alias="ESSENTIALS_WAIT_SEC")
 
+    # Auto-install missing tools/models under AI_ROOT (E:/AI) on launch
+    auto_install_prereqs: bool = Field(default=True, alias="AUTO_INSTALL_PREREQS")
+    auto_install_comfy: bool = Field(default=True, alias="AUTO_INSTALL_COMFY")
+    # pip install Comfy requirements after clone (torch is large; set true for bare machines)
+    auto_install_comfy_deps: bool = Field(default=False, alias="AUTO_INSTALL_COMFY_DEPS")
+    auto_install_models: bool = Field(default=True, alias="AUTO_INSTALL_MODELS")
+    auto_install_ffmpeg: bool = Field(default=True, alias="AUTO_INSTALL_FFMPEG")
+    auto_install_ollama_models: bool = Field(default=True, alias="AUTO_INSTALL_OLLAMA_MODELS")
+    # Prefer E:/AI/Models over ComfyUI/models (shared layout + extra_model_paths)
+    auto_install_use_shared_models: bool = Field(
+        default=True, alias="AUTO_INSTALL_USE_SHARED_MODELS"
+    )
+    auto_install_download_timeout_sec: int = Field(
+        default=7200, alias="AUTO_INSTALL_DOWNLOAD_TIMEOUT_SEC", ge=60
+    )
+    # Optional Hugging Face token for higher rate limits / gated assets
+    hf_token: str = Field(default="", alias="HF_TOKEN")
+
     @field_validator(
         "gemini_model_fallbacks",
         "llm_fallback_order",

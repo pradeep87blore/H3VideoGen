@@ -259,12 +259,39 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bootstrap(args: argparse.Namespace) -> int:
+    """Install missing ComfyUI / H3 models / FFmpeg / Ollama models under AI_ROOT."""
+    from app.prereq_install import run_bootstrap_blocking, scan_prereqs
+
+    if getattr(args, "scan_only", False):
+        rep = scan_prereqs()
+        print(json.dumps(rep.to_dict(), indent=2))
+        return 0 if rep.ok else 1
+
+    print("Checking / installing prerequisites under AI_ROOT ...", flush=True)
+    rep = run_bootstrap_blocking(log=lambda m: print(m, flush=True))
+    print(json.dumps(rep.to_dict(), indent=2), flush=True)
+    return 0 if rep.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="H3 Video Gen — Gemini director/critic + MiniMax H3")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_serve = sub.add_parser("serve", help="Start web UI")
     p_serve.set_defaults(func=lambda a: cmd_serve() or 0)
+
+    p_boot = sub.add_parser(
+        "bootstrap",
+        help="Install missing tools/models into AI_ROOT (E:/AI by default)",
+    )
+    p_boot.add_argument(
+        "--scan",
+        dest="scan_only",
+        action="store_true",
+        help="Only report what is missing (no install)",
+    )
+    p_boot.set_defaults(func=cmd_bootstrap)
 
     p_gen = sub.add_parser(
         "generate",

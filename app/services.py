@@ -627,7 +627,49 @@ def ffmpeg_available(settings: Settings) -> bool:
     path = settings.ffmpeg_path or "ffmpeg"
     if Path(path).is_file():
         return True
-    return shutil.which(path) is not None
+    if shutil.which(path) is not None:
+        return True
+    # Shared AI_ROOT portable install (bootstrap places it here)
+    for cand in (
+        Path(settings.ai_root) / "FFmpeg" / "bin" / "ffmpeg.exe",
+        Path(settings.ai_root) / "FFmpeg" / "ffmpeg.exe",
+    ):
+        if cand.is_file():
+            return True
+    try:
+        ff_root = Path(settings.ai_root) / "FFmpeg"
+        if ff_root.is_dir():
+            for found in ff_root.rglob("ffmpeg.exe"):
+                if found.is_file():
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def resolve_ffmpeg(settings: Settings) -> str:
+    """Best ffmpeg executable path for subprocess calls."""
+    path = settings.ffmpeg_path or "ffmpeg"
+    if Path(path).is_file():
+        return str(Path(path))
+    w = shutil.which(path)
+    if w:
+        return w
+    for cand in (
+        Path(settings.ai_root) / "FFmpeg" / "bin" / "ffmpeg.exe",
+        Path(settings.ai_root) / "FFmpeg" / "ffmpeg.exe",
+    ):
+        if cand.is_file():
+            return str(cand)
+    try:
+        ff_root = Path(settings.ai_root) / "FFmpeg"
+        if ff_root.is_dir():
+            for found in ff_root.rglob("ffmpeg.exe"):
+                if found.is_file():
+                    return str(found)
+    except Exception:
+        pass
+    return path
 
 
 def essentials_report(settings: Settings) -> dict[str, Any]:
