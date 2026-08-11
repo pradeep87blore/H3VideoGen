@@ -281,8 +281,17 @@ class CharacterBoardBuilder:
                     h3_n = self._fill_h3_turnaround(c, plan)
                     if h3_n:
                         used_sources.append("h3")
-                except Exception as exc:  # noqa: BLE001
-                    self._emit(f"Character sheet H3 turnaround failed for {c.name}: {exc}")
+                except Exception as exp:  # noqa: BLE001
+                    self._emit(f"Character sheet H3 turnaround failed for {c.name}: {exp}")
+
+            # Critic QA + optional Gemini retakes for each pose still
+            if (
+                self.settings.character_sheet_critic_enabled
+                and any(p.image_path for p in c.sheet)
+            ):
+                fixed = self._critic_review_character_sheet(c, plan)
+                if fixed:
+                    used_sources.append("critic")
 
             self._sync_primary_image([c])
             primary = self._primary_path(c)
@@ -395,6 +404,276 @@ class CharacterBoardBuilder:
             except Exception as exc:  # noqa: BLE001
                 self._emit(f"Character sheet Gemini failed {c.name}/{pose.pose_id}: {exc}")
         return n
+
+    def _critic_review_character_sheet(
+        self, character: CharacterDesign, plan: ProductionPlan
+    ) -> int:
+        """
+        Review each sheet pose; on RETAKE regenerate via Gemini (with notes).
+        Returns number of retake regenerations performed.
+        """
+        from .agents.critic import CriticAgent
+        from .models import CriticVerdict
+
+        if not self.settings.character_sheet_critic_enabled:
+            return 0
+
+        critic = CriticAgent(self.settings, log=self.log)
+        reviews_dir = self.board_dir / "sheet_reviews"
+        reviews_dir.mkdir(parents=True, exist_ok=True)
+        max_rt = int(self.settings.character_sheet_critic_max_retakes)
+        require_pass = bool(self.settings.character_sheet_critic_require_pass)
+        regenerations = 0
+
+        self._emit(f"Character sheet critic: reviewing {character.name}…")
+
+        for pose in character.sheet:
+            job_control.check()
+            if not pose.image_path or not Path(pose.image_path).exists():
+                continue
+
+            notes = ""
+            best_path = Path(pose.image_path)
+            best_score = -1.0
+            passed = False
+
+            for attempt in range(1, max_rt + 2):
+                job_control.check()
+                img = Path(pose.image_path) if pose.image_path else None
+                if not img or not img.exists():
+                    break
+
+                render_used = self._sheet_still_prompt(character, plan, pose, notes)
+                review = critic.review_character_pose(
+                    plan,
+                    character,
+                    pose,
+                    img,
+                    take=attempt,
+                    render_prompt_used=render_used,
+                )
+                (reviews_dir / f"{character.id}_{pose.pose_id}_t{attempt}.json").write_text(
+                    review.model_dump_json(indent=2), encoding="utf-8"
+                )
+                self._emit(
+                    f"Sheet critic ({critic.last_provider or '?'}): "
+                    f"{character.name}/{pose.pose_id} attempt {attempt} "
+                    f"→ {review.verdict.value} score={review.overall_score} — "
+                    f"{(review.summary or '')[:120]}"
+                )
+
+                if (review.overall_score or 0) >= best_score:
+                    best_score = review.overall_score or 0
+                    best_path = img
+
+                if review.verdict == CriticVerdict.pass_:
+                    if review.revised_prompt:
+                        pose.prompt = review.revised_prompt.strip() or pose.prompt
+                    passed = True
+                    break
+
+                notes = (review.retake_instructions or review.summary or "").strip()
+                if review.revised_prompt:
+                    pose.prompt = review.revised_prompt.strip()
+
+                if attempt > max_rt:
+                    break
+
+                # Retake: regenerate still with critic notes
+                self._emit(
+                    f"Character sheet RETAKE {character.name}/{pose.pose_id}: "
+                    f"{notes[:160]}"
+                )
+                try:
+                    new_path = self._gemini_still(
+                        character, plan, pose, critic_notes=notes, attempt=attempt + 1
+                    )
+                    if new_path:
+                        pose.image_path = str(new_path)
+                        regenerations += 1
+                    else:
+                        self._emit(
+                            f"Character sheet retake failed to produce image for "
+                            f"{character.name}/{pose.pose_id}"
+                        )
+                        break
+                except CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    self._emit(
+                        f"Character sheet retake error {character.name}/{pose.pose_id}: {exc}"
+                    )
+                    break
+
+            if not passed:
+                if best_path and best_path.exists():
+                    pose.image_path = str(best_path)
+                    self._emit(
+                        f"Sheet critic: {character.name}/{pose.pose_id} kept best "
+                        f"(score={best_score})"
+                        + ("; require-pass ignored soft" if require_pass else "")
+                    )
+                if require_pass and best_score < float(
+                    self.settings.character_sheet_critic_threshold
+                ):
+                    # Soft-soft: only drop if truly unusable empty; keep primary refs
+                    self._emit(
+                        f"Sheet critic: {character.name}/{pose.pose_id} below "
+                        f"threshold after retakes (score={best_score})"
+                    )
+
+        # Optional multi-view identity check (front + closeup)
+        if self.settings.character_sheet_critic_identity_check:
+            regenerations += self._critic_identity_lock(character, plan, critic, reviews_dir)
+
+        return regenerations
+
+    def _critic_identity_lock(
+        self,
+        character: CharacterDesign,
+        plan: ProductionPlan,
+        critic: object,
+        reviews_dir: Path,
+    ) -> int:
+        """Compare front + face views; if identity diverges, regen weaker pose once."""
+        from .agents.critic import CriticAgent
+        from .models import CriticVerdict
+
+        if not isinstance(critic, CriticAgent):
+            return 0
+
+        by_id = {
+            p.pose_id: p
+            for p in character.sheet
+            if p.image_path and Path(p.image_path).exists()
+        }
+        front = by_id.get("front_full") or by_id.get("three_quarter")
+        face = by_id.get("closeup_face")
+        if not front or not face or front is face:
+            return 0
+
+        job_control.check()
+        self._emit(f"Character sheet identity lock: {character.name} front vs close-up…")
+        review = critic.review_character_pose(
+            plan,
+            character,
+            face,
+            Path(face.image_path),  # type: ignore[arg-type]
+            take=1,
+            render_prompt_used=self._sheet_still_prompt(character, plan, face, ""),
+            peer_images=[Path(front.image_path)],  # type: ignore[arg-type]
+        )
+        (reviews_dir / f"{character.id}_identity_t1.json").write_text(
+            review.model_dump_json(indent=2), encoding="utf-8"
+        )
+        self._emit(
+            f"Sheet identity ({critic.last_provider or '?'}): "
+            f"{review.verdict.value} score={review.overall_score} — "
+            f"{(review.summary or '')[:120]}"
+        )
+        if review.verdict == CriticVerdict.pass_:
+            return 0
+
+        notes = (review.retake_instructions or review.summary or "").strip()
+        # Prefer fixing the lower-fidelity close-up unless instructions say otherwise
+        target = face
+        if review.revised_prompt:
+            target.prompt = review.revised_prompt.strip()
+        try:
+            new_path = self._gemini_still(
+                character, plan, target, critic_notes=notes, attempt=2
+            )
+            if new_path:
+                target.image_path = str(new_path)
+                self._emit(
+                    f"Identity lock retake: regenerated {character.name}/{target.pose_id}"
+                )
+                return 1
+        except CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self._emit(f"Identity lock retake failed: {exc}")
+        return 0
+
+    def _sheet_still_prompt(
+        self,
+        character: CharacterDesign,
+        plan: ProductionPlan,
+        pose: CharacterSheetPose,
+        critic_notes: str = "",
+    ) -> str:
+        pose_bit = pose.prompt or pose.label or pose.pose_id
+        parts = [
+            f"Character design sheet still of {character.name}.",
+            f"Identity lock: {character.look or character.board_prompt or plan.character_lock}",
+            f"View: {pose_bit}",
+            f"Art style: {plan.style_bible}",
+            "Single character only. Plain seamless studio background. Consistent face, hair, "
+            "outfit, proportions across the character bible. No text, no logos, no watermarks.",
+        ]
+        if critic_notes:
+            parts.append("MANDATORY FIXES FROM SHEET CRITIC:\n" + critic_notes.strip())
+        return "\n".join(parts)
+
+    def _gemini_still(
+        self,
+        character: CharacterDesign,
+        plan: ProductionPlan,
+        pose: CharacterSheetPose,
+        critic_notes: str = "",
+        attempt: int = 1,
+    ) -> Path | None:
+        if not self.settings.gemini_api_key:
+            return None
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self.settings.gemini_api_key)
+        models = [m.strip() for m in self.settings.gemini_image_models if m.strip()]
+        prompt = self._sheet_still_prompt(character, plan, pose, critic_notes)
+        stem = f"{character.id}_{pose.pose_id}"
+        if attempt > 1:
+            stem = f"{stem}_r{attempt}"
+        last_err: Exception | None = None
+        for model in models:
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_modalities=["TEXT", "IMAGE"],
+                    ),
+                )
+                path = self._save_gemini_images(response, stem)
+                if path:
+                    return path
+            except Exception as exc:  # noqa: BLE001
+                last_err = exc
+                continue
+        if last_err:
+            raise last_err
+        return None
+
+    def _save_gemini_images(self, response: object, stem: str) -> Path | None:
+        candidates = getattr(response, "candidates", None) or []
+        for cand in candidates:
+            content = getattr(cand, "content", None)
+            parts = getattr(content, "parts", None) or []
+            for part in parts:
+                inline = getattr(part, "inline_data", None)
+                if not inline:
+                    continue
+                data = getattr(inline, "data", None)
+                mime = getattr(inline, "mime_type", "image/png") or "image/png"
+                if not data:
+                    continue
+                raw = base64.b64decode(data) if isinstance(data, str) else bytes(data)
+                ext = ".png" if "png" in mime else ".jpg"
+                out = self.board_dir / f"{stem}{ext}"
+                out.write_bytes(raw)
+                if out.stat().st_size > 500:
+                    return out
+        return None
 
     def _fill_gemini_sheets(self, chars: list[CharacterDesign], plan: ProductionPlan) -> None:
         for c in chars:
@@ -694,69 +973,6 @@ class CharacterBoardBuilder:
         (self.board_dir / "sheet_manifest.json").write_text(
             json.dumps(data, indent=2), encoding="utf-8"
         )
-
-    def _gemini_still(
-        self,
-        character: CharacterDesign,
-        plan: ProductionPlan,
-        pose: CharacterSheetPose,
-    ) -> Path | None:
-        if not self.settings.gemini_api_key:
-            return None
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=self.settings.gemini_api_key)
-        models = [m.strip() for m in self.settings.gemini_image_models if m.strip()]
-        pose_bit = pose.prompt or pose.label or pose.pose_id
-        prompt = (
-            f"Character design sheet still of {character.name}.\n"
-            f"Identity lock: {character.look or character.board_prompt or plan.character_lock}\n"
-            f"View: {pose_bit}\n"
-            f"Art style: {plan.style_bible}\n"
-            "Single character only. Plain seamless studio background. Consistent face, hair, "
-            "outfit, proportions across the character bible. No text, no logos, no watermarks."
-        )
-        last_err: Exception | None = None
-        for model in models:
-            try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_modalities=["TEXT", "IMAGE"],
-                    ),
-                )
-                path = self._save_gemini_images(response, f"{character.id}_{pose.pose_id}")
-                if path:
-                    return path
-            except Exception as exc:  # noqa: BLE001
-                last_err = exc
-                continue
-        if last_err:
-            raise last_err
-        return None
-
-    def _save_gemini_images(self, response: object, stem: str) -> Path | None:
-        candidates = getattr(response, "candidates", None) or []
-        for cand in candidates:
-            content = getattr(cand, "content", None)
-            parts = getattr(content, "parts", None) or []
-            for part in parts:
-                inline = getattr(part, "inline_data", None)
-                if not inline:
-                    continue
-                data = getattr(inline, "data", None)
-                mime = getattr(inline, "mime_type", "image/png") or "image/png"
-                if not data:
-                    continue
-                raw = base64.b64decode(data) if isinstance(data, str) else bytes(data)
-                ext = ".png" if "png" in mime else ".jpg"
-                out = self.board_dir / f"{stem}{ext}"
-                out.write_bytes(raw)
-                if out.stat().st_size > 500:
-                    return out
-        return None
 
 
 PRIMARY_POSES_INDEX = {pid: i for i, (pid, _, _) in enumerate(PRIMARY_POSES)}

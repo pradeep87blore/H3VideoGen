@@ -31,7 +31,7 @@ from .models import (
     normalize_narrative_mode,
 )
 from .scene_still import generate_scene_still
-from .services import ensure_runtime_services, comfy_reachable
+from .services import heal_runtime_services, ensure_runtime_services, comfy_reachable
 
 LogFn = Callable[[str], None]
 
@@ -703,24 +703,34 @@ class ProductionPipeline:
         deadline_note = min(self.settings.essentials_wait_sec, self.settings.comfy_start_timeout_sec)
         self._log(
             state,
-            f"Checking essentials (ComfyUI / Ollama / FFmpeg) — will wait ≤{deadline_note}s then fail if still down…",
+            f"Self-heal essentials (ComfyUI / Ollama / FFmpeg) — auto-start/replace if needed (≤{deadline_note}s)…",
             log,
         )
-        report = ensure_runtime_services(
+        report = heal_runtime_services(
             self.settings,
             log=lambda m: self._log(state, m, log),
             need_comfy=True,
             need_ollama=True,
+            reason="job_start",
         )
+        # Second pass if first heal was mid-boot
         comfy = report.get("comfy") or {}
+        if not comfy.get("ok"):
+            report = ensure_runtime_services(
+                self.settings,
+                log=lambda m: self._log(state, m, log),
+                need_comfy=True,
+                need_ollama=True,
+            )
+            comfy = report.get("comfy") or {}
         if not comfy.get("ok"):
             msg = (
                 comfy.get("error")
                 or f"ComfyUI not ready at {self.settings.comfy_base_url}"
             )
             raise RuntimeError(
-                f"ESSENTIALS FAILED (within {deadline_note}s): {msg} "
-                "Start/replace ComfyUI with MiniMax H3 nodes (COMFYUI_ROOT), then Retry / Resume."
+                f"ESSENTIALS FAILED after self-heal (within {deadline_note}s): {msg} "
+                "Check COMFYUI_ROOT / AUTO_START_COMFY, then Retry / Resume."
             )
         if self.settings.comfy_require_h3_nodes:
             from .services import comfy_h3_status

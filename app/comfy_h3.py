@@ -27,6 +27,10 @@ class ComfyError(RuntimeError):
     pass
 
 
+class ComfyNeedsResubmit(ComfyError):
+    """Comfy restarted or lost the queued prompt — caller should re-submit the graph."""
+
+
 class ComfyH3Client:
     def __init__(self, settings: Settings, control: JobControl | None = None):
         self.settings = settings
@@ -117,9 +121,10 @@ class ComfyH3Client:
                     pass
 
     def wait_until_ready(self, timeout_sec: float = 180.0, log: Any = None) -> None:
-        """Poll until Comfy answers; optionally start/replace H3 instance via services."""
+        """Poll until Comfy answers; self-heal by starting/replacing H3 instance if needed."""
         deadline = time.time() + max(15.0, timeout_sec)
         last_err: Exception | None = None
+        last_heal = 0.0
         while time.time() < deadline:
             if self.control and self.control.is_cancelled():
                 raise CancelledError("Cancelled while waiting for ComfyUI")
@@ -128,12 +133,24 @@ class ComfyH3Client:
                 return
             except Exception as exc:
                 last_err = exc
-            try:
-                from .services import ensure_h3_comfy
+            now = time.time()
+            # First failure immediately; retry heal every ~45s while still down
+            if last_heal <= 0.0 or (now - last_heal) >= 45.0:
+                try:
+                    from .services import heal_runtime_services, invalidate_service_caches
 
-                ensure_h3_comfy(self.settings, log=log)
-            except Exception as exc:
-                last_err = exc
+                    invalidate_service_caches()
+                    heal_runtime_services(
+                        self.settings,
+                        log=log,
+                        need_comfy=True,
+                        need_ollama=False,
+                        reason="comfy_not_ready",
+                    )
+                    last_heal = now
+                except Exception as exc:
+                    last_err = exc
+                    last_heal = now
             time.sleep(2.0)
         raise ComfyError(f"ComfyUI not ready within {timeout_sec:.0f}s: {last_err}")
 
@@ -154,8 +171,32 @@ class ComfyH3Client:
                 "server disconnected",
                 "remote end closed",
                 "network is unreachable",
+                "unreachable",
+                "comfyui unreachable",
+                "repeatedly failed",
             )
         ) or isinstance(exc, (httpx.TransportError, httpx.TimeoutException))
+
+    def _heal_comfy(self, log: Any = None) -> None:
+        from .services import heal_runtime_services, invalidate_service_caches
+
+        invalidate_service_caches()
+        report = heal_runtime_services(
+            self.settings,
+            log=log,
+            need_comfy=True,
+            need_ollama=False,
+            reason="mid_generation",
+        )
+        comfy = (report or {}).get("comfy") or {}
+        if not comfy.get("ok"):
+            # still try a short wait in case it is mid-boot
+            try:
+                self.health()
+            except Exception as exc:
+                raise ComfyError(
+                    comfy.get("error") or f"Self-heal failed for ComfyUI: {exc}"
+                ) from exc
 
     def upload_image(self, path: Path, *, subfolder: str = "H3VideoGen") -> str:
         """Upload local image; returns filename usable by LoadImage."""
@@ -190,12 +231,19 @@ class ComfyH3Client:
             except Exception as exc:
                 last_err = exc
                 if not self._is_connection_error(exc) and not isinstance(exc, ComfyError):
-                    if not self._is_connection_error(exc):
-                        raise ComfyError(str(exc)) from exc
-                if not self._is_connection_error(exc) and isinstance(exc, ComfyError) and "upload failed" in str(exc).lower():
+                    raise ComfyError(str(exc)) from exc
+                if (
+                    not self._is_connection_error(exc)
+                    and isinstance(exc, ComfyError)
+                    and "upload failed" in str(exc).lower()
+                ):
                     raise
                 if attempt >= 4:
                     break
+                try:
+                    self._heal_comfy()
+                except Exception:
+                    pass
                 self.wait_until_ready(timeout_sec=120.0)
                 time.sleep(min(8, attempt * 2))
         raise ComfyError(f"Image upload failed after retries: {last_err}")
@@ -373,10 +421,9 @@ class ComfyH3Client:
     def wait(self, prompt_id: str) -> dict[str, Any]:
         t0 = time.time()
         timeout = self.settings.comfyui_timeout_sec
-        # Fail fast if Comfy is down/unreachable (don't burn the full hour timeout)
         consecutive_connect_failures = 0
-        max_connect_failures = 8  # ~few seconds of hard refusals
-        # Short HTTP timeouts so cancel flags are observed often
+        max_connect_failures = 6
+        heal_done = False
         with httpx.Client(timeout=8.0) as client:
             while True:
                 if self.control and self.control.is_cancelled():
@@ -394,7 +441,6 @@ class ComfyH3Client:
                         self.interrupt()
                         raise CancelledError("Generation cancelled while waiting on ComfyUI") from exc
                     consecutive_connect_failures += 1
-                    # Connection refused / DNS etc. — Comfy is not running
                     msg = str(exc).lower()
                     hard_down = any(
                         s in msg
@@ -406,14 +452,47 @@ class ComfyH3Client:
                             "name or service not known",
                             "failed to establish",
                             "no connection could be made",
+                            "10054",
+                            "connection reset",
+                            "forcibly closed",
+                            "server disconnected",
                         )
                     )
-                    if hard_down and consecutive_connect_failures >= max_connect_failures:
-                        raise ComfyError(
-                            f"ComfyUI unreachable while waiting for {prompt_id}: {exc}"
-                        ) from exc
-                    if consecutive_connect_failures >= 40:
-                        # ~15–30s of repeated failures with short timeouts
+                    soft_down = hard_down or self._is_connection_error(exc)
+
+                    if soft_down and consecutive_connect_failures >= max_connect_failures:
+                        # Self-heal: restart/repair Comfy. After a real restart the
+                        # prompt_id is gone — resubmit. After a brief blip, continue.
+                        try:
+                            if not heal_done:
+                                self._heal_comfy()
+                                heal_done = True
+                                self.wait_until_ready(timeout_sec=120.0)
+                                consecutive_connect_failures = 0
+                                # Probe once: if the old prompt is still known, keep waiting
+                                try:
+                                    with httpx.Client(timeout=8.0) as probe:
+                                        pr = probe.get(f"{self.base}/history/{prompt_id}")
+                                        pr.raise_for_status()
+                                        if prompt_id in (pr.json() or {}):
+                                            continue
+                                except Exception:
+                                    pass
+                                raise ComfyNeedsResubmit(
+                                    f"ComfyUI recovered while waiting for {prompt_id}; "
+                                    "prompt was lost — resubmitting job"
+                                )
+                            raise ComfyNeedsResubmit(
+                                f"ComfyUI still unstable while waiting for {prompt_id}: {exc}"
+                            ) from exc
+                        except ComfyNeedsResubmit:
+                            raise
+                        except Exception as heal_exc:
+                            raise ComfyError(
+                                f"ComfyUI unreachable for {prompt_id} and self-heal failed: {heal_exc}"
+                            ) from heal_exc
+
+                    if consecutive_connect_failures >= 50:
                         raise ComfyError(
                             f"ComfyUI repeatedly failed while waiting for {prompt_id}: {exc}"
                         ) from exc
@@ -424,7 +503,6 @@ class ComfyH3Client:
                     status = item.get("status") or {}
                     s = status.get("status_str")
                     if s == "error":
-                        # Interrupted graphs often surface as error
                         if self.control and self.control.is_cancelled():
                             raise CancelledError("Generation cancelled while waiting on ComfyUI")
                         raise ComfyError(f"Comfy error: {status}")
@@ -432,12 +510,15 @@ class ComfyH3Client:
                         if self.control and self.control.is_cancelled():
                             raise CancelledError("Generation cancelled after Comfy finished")
                         return item
-                    # interrupted / cancelled status strings from some builds
                     if s in ("interrupted", "cancelled", "canceled"):
                         raise CancelledError("ComfyUI job interrupted")
+                elif heal_done:
+                    # Comfy came back but this prompt_id is gone
+                    raise ComfyNeedsResubmit(
+                        f"Prompt {prompt_id} missing after Comfy recover — resubmitting"
+                    )
                 if time.time() - t0 > timeout:
                     raise ComfyError(f"Timeout waiting for {prompt_id}")
-                # ~0.25s cadence for responsive Stop
                 for _ in range(5):
                     if self.control and self.control.is_cancelled():
                         self.interrupt()
@@ -471,12 +552,24 @@ class ComfyH3Client:
                 return pid
             except CancelledError:
                 raise
-            except ComfyError:
-                raise
+            except ComfyError as exc:
+                if not self._is_connection_error(exc) or attempt >= 4:
+                    raise
+                last_err = exc
+                try:
+                    self._heal_comfy()
+                except Exception:
+                    pass
+                self.wait_until_ready(timeout_sec=180.0)
+                time.sleep(min(8, attempt * 2))
             except Exception as exc:
                 last_err = exc
                 if not self._is_connection_error(exc) or attempt >= 4:
                     raise ComfyError(f"Queue failed: {exc}") from exc
+                try:
+                    self._heal_comfy()
+                except Exception:
+                    pass
                 self.wait_until_ready(timeout_sec=180.0)
                 time.sleep(min(8, attempt * 2))
         raise ComfyError(f"Queue failed after retries: {last_err}")
@@ -615,11 +708,11 @@ class ComfyH3Client:
         Retries the whole submit when Comfy drops the connection before the job starts.
         """
         last_err: Exception | None = None
-        for attempt in range(1, 4):
+        for attempt in range(1, 6):
             if self.control:
                 self.control.check()
             try:
-                self.wait_until_ready(timeout_sec=90.0 if attempt > 1 else 15.0)
+                self.wait_until_ready(timeout_sec=120.0 if attempt > 1 else 30.0)
                 mode_l = (mode or "t2v").lower()
                 refs = [Path(p) for p in (ref_image_paths or []) if p and Path(p).exists()]
 
@@ -665,14 +758,20 @@ class ComfyH3Client:
                     "missing_node" in str(exc).lower()
                     or "node_errors" in str(exc).lower()
                     or "queue failed 400" in str(exc).lower()
-                ):
+                ) and not isinstance(exc, ComfyNeedsResubmit):
                     raise
-                if not self._is_connection_error(exc) and not (
+                needs_resubmit = isinstance(exc, ComfyNeedsResubmit)
+                conn = self._is_connection_error(exc) or (
                     isinstance(exc, ComfyError) and self._is_connection_error(exc)
-                ):
+                )
+                if not needs_resubmit and not conn:
                     raise
-                if attempt >= 3:
+                if attempt >= 5:
                     break
-                time.sleep(min(12, attempt * 3))
+                try:
+                    self._heal_comfy()
+                except Exception:
+                    pass
+                time.sleep(min(15, attempt * 3))
                 self.wait_until_ready(timeout_sec=180.0)
         raise ComfyError(f"Generate failed after retries: {last_err}") from last_err

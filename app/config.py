@@ -58,6 +58,22 @@ class Settings(BaseSettings):
     character_sheet_max_refs_per_shot: int = Field(default=4, alias="CHARACTER_SHEET_MAX_REFS_PER_SHOT")
     # If Gemini stills fail / incomplete, run a short H3 T2V turnaround
     character_sheet_use_h3: bool = Field(default=True, alias="CHARACTER_SHEET_USE_H3")
+    # Critic QA on character sheet stills (per pose) before R2V uses them
+    character_sheet_critic_enabled: bool = Field(default=True, alias="CHARACTER_SHEET_CRITIC_ENABLED")
+    character_sheet_critic_max_retakes: int = Field(
+        default=2, alias="CHARACTER_SHEET_CRITIC_MAX_RETAKES", ge=0, le=6
+    )
+    character_sheet_critic_threshold: float = Field(
+        default=7.0, alias="CHARACTER_SHEET_CRITIC_THRESHOLD"
+    )
+    # If true, drop stills that never PASS (may leave thin sheets). Default soft: keep best.
+    character_sheet_critic_require_pass: bool = Field(
+        default=False, alias="CHARACTER_SHEET_CRITIC_REQUIRE_PASS"
+    )
+    # After per-pose fixes, also score front + closeup together for identity lock
+    character_sheet_critic_identity_check: bool = Field(
+        default=True, alias="CHARACTER_SHEET_CRITIC_IDENTITY_CHECK"
+    )
     gemini_director_model: str = Field(default="gemini-3.5-flash", alias="GEMINI_DIRECTOR_MODEL")
     gemini_critic_model: str = Field(default="gemini-3.5-flash", alias="GEMINI_CRITIC_MODEL")
     gemini_model_fallbacks: Annotated[list[str], NoDecode] = Field(
@@ -96,6 +112,12 @@ class Settings(BaseSettings):
     preclip_use_as_first_frame: bool = Field(default=True, alias="PRECLIP_USE_AS_FIRST_FRAME")
     # How many generation jobs may run at once (1 = serial queue; raise carefully on VRAM)
     max_parallel_jobs: int = Field(default=1, alias="MAX_PARALLEL_JOBS", ge=1, le=8)
+    # Persist queued/running jobs to OUTPUT_ROOT/job_queue.json and restore on startup
+    queue_persist: bool = Field(default=True, alias="QUEUE_PERSIST")
+    # Also re-queue incomplete on-disk projects left mid-run after an unclean exit
+    queue_auto_resume_interrupted: bool = Field(
+        default=True, alias="QUEUE_AUTO_RESUME_INTERRUPTED"
+    )
 
     # Local OpenAI-compatible server (Ollama default port, also works with LM Studio :1234)
     local_llm_enabled: bool = Field(default=True, alias="LOCAL_LLM_ENABLED")

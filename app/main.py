@@ -5,6 +5,7 @@ import asyncio
 import threading
 import traceback
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Callable
 
@@ -24,10 +25,15 @@ from .job_control import (
 )
 from .models import DirectorOnlyRequest, GenerateRequest, ResumeRequest
 from .pipeline import ProductionPipeline, list_projects, load_state, _elapsed_sec
+from .queue_store import (
+    durable_item,
+    load_queue_document,
+    save_queue_document,
+)
 from .services import (
     comfy_reachable,
-    ensure_runtime_services,
     essentials_report,
+    heal_runtime_services,
     ollama_reachable,
 )
 from .style_library import get_style, styles_for_api, build_style_prompt
@@ -35,7 +41,22 @@ from .style_library import get_style, styles_for_api, build_style_prompt
 ROOT = Path(__file__).resolve().parent.parent
 settings = get_settings()
 
-app = FastAPI(title="H3 Video Gen", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Restore durable queue on boot; flush on clean shutdown."""
+    try:
+        await asyncio.to_thread(_restore_queue_from_disk)
+    except Exception:
+        traceback.print_exc()
+    yield
+    try:
+        await asyncio.to_thread(_persist_queue_safe)
+    except Exception:
+        traceback.print_exc()
+
+
+app = FastAPI(title="H3 Video Gen", version="0.1.0", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(ROOT / "web" / "templates"))
 
 # project jobs: job_key / project_id -> status info
@@ -49,6 +70,10 @@ _workers: dict[str, threading.Thread] = {}
 _controls: dict[str, JobControl] = {}
 # Runtime override for parallel slots (None → settings.max_parallel_jobs)
 _parallel_override: int | None = None
+# While restoring, avoid thrashing disk writes
+_restoring_queue = False
+# One-time bootstrap log lines surfaced into jobs UI
+_restore_notes: list[str] = []
 
 static_dir = ROOT / "web" / "static"
 static_dir.mkdir(parents=True, exist_ok=True)
@@ -185,22 +210,32 @@ def _health_snapshot() -> dict[str, Any]:
 
 @app.post("/api/services/ensure")
 async def services_ensure():
-    """Start ComfyUI / Ollama if configured and not already running."""
+    """Start ComfyUI / Ollama if configured and not already running (self-heal)."""
     lines: list[str] = []
 
     def log(m: str) -> None:
         lines.append(m)
 
-    report = ensure_runtime_services(settings, log=log, need_comfy=True, need_ollama=True)
-    essentials = essentials_report(settings)
+    def _run() -> dict[str, Any]:
+        return heal_runtime_services(
+            settings,
+            log=log,
+            need_comfy=True,
+            need_ollama=True,
+            reason="api_ensure",
+        )
+
+    report = await asyncio.to_thread(_run)
+    essentials = await asyncio.to_thread(essentials_report, settings)
     comfy_rep = report.get("comfy") or {}
     return {
         "ok": bool(comfy_rep.get("ok")),
         "report": report,
         "log": lines,
         "comfy_ok": bool(comfy_rep.get("ok")),
-        "ollama_ok": ollama_reachable(settings),
+        "ollama_ok": await asyncio.to_thread(ollama_reachable, settings),
         "essentials": essentials,
+        "self_healed": True,
     }
 
 
@@ -401,10 +436,24 @@ def _merge_state_into_job(
 def _set_job(key: str, data: dict[str, Any], *aliases: str) -> None:
     with _lock:
         data.setdefault("job_key", key)
+        # Preserve durable fields across snapshot overwrites
+        prev = _jobs.get(key) or {}
+        for field in (
+            "kind",
+            "generate_payload",
+            "resume_payload",
+            "enqueued_at",
+            "label",
+            "prompt_preview",
+            "restored",
+        ):
+            if data.get(field) is None and prev.get(field) is not None:
+                data[field] = prev.get(field)
         _jobs[key] = data
         for a in aliases:
             if a and a != key:
                 _jobs[a] = data
+    _persist_queue_safe()
 
 
 def _is_running_status(status: str | None) -> bool:
@@ -427,7 +476,335 @@ def _is_active_status(status: str | None) -> bool:
         "generating",
         "reviewing",
         "cancelling",
+        "interrupted",
     }
+
+
+def _is_terminal_job_status(status: str | None) -> bool:
+    return (status or "").lower() in {
+        "completed",
+        "completed_no_assemble",
+        "cancelled",
+        "error",
+        "failed",
+    }
+
+
+def _is_incomplete_project_status(status: str | None) -> bool:
+    s = (status or "").lower()
+    return s in {
+        "running",
+        "planning",
+        "assembling",
+        "generating",
+        "reviewing",
+        "retake",
+        "cancelling",
+        "interrupted",
+        "created",
+    }
+
+
+def _resume_payload_from_generate(gen: dict[str, Any] | None) -> dict[str, Any]:
+    gen = gen or {}
+    return {
+        "max_retakes": gen.get("max_retakes"),
+        "auto_assemble": gen.get("auto_assemble", True),
+        "seed_base": gen.get("seed_base", 42),
+        "h3_mode": gen.get("h3_mode"),
+        "narrative_mode": gen.get("narrative_mode"),
+        "redo_failed": True,
+    }
+
+
+def _job_to_durable(
+    j: dict[str, Any],
+    job_key: str,
+    *,
+    status: str,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    fb = fallback or {}
+    kind = j.get("kind") or fb.get("kind") or "generate"
+    gen = (
+        j.get("generate_payload")
+        if j.get("generate_payload") is not None
+        else fb.get("generate_payload")
+    )
+    res = (
+        j.get("resume_payload")
+        if j.get("resume_payload") is not None
+        else fb.get("resume_payload")
+    )
+    pid = j.get("project_id") or fb.get("project_id")
+    if kind == "resume" and res is None:
+        res = {}
+    if kind == "generate" and not gen and not (
+        pid and not str(pid).startswith(("pending_", "resume_"))
+    ):
+        return None
+    if kind == "resume" and not pid:
+        return None
+    return durable_item(
+        job_key=job_key,
+        kind=str(kind),
+        label=j.get("label") or fb.get("label") or "",
+        project_id=str(pid) if pid else None,
+        prompt_preview=j.get("prompt_preview") or fb.get("prompt_preview") or "",
+        title=j.get("title") or fb.get("title"),
+        status=status,
+        generate_payload=gen,
+        resume_payload=res,
+        enqueued_at=j.get("enqueued_at") or fb.get("enqueued_at"),
+    )
+
+
+def _build_persist_document_unlocked() -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for jk, t in list(_workers.items()):
+        if not t or not t.is_alive():
+            continue
+        j = _jobs.get(jk) or {}
+        d = _job_to_durable(j, jk, status="running")
+        if d:
+            items.append(d)
+            seen.add(jk)
+    for q in _queue:
+        jk = q.get("job_key")
+        if not jk or jk in seen:
+            continue
+        j = _jobs.get(jk) or {}
+        d = _job_to_durable(j, jk, status="queued", fallback=q)
+        if d:
+            items.append(d)
+            seen.add(jk)
+    return {
+        "version": 1,
+        "items": items,
+        "parallel_override": _parallel_override,
+    }
+
+
+def _persist_queue_safe() -> None:
+    if not settings.queue_persist or _restoring_queue:
+        return
+    try:
+        with _lock:
+            doc = _build_persist_document_unlocked()
+        save_queue_document(settings, doc)
+    except Exception:
+        traceback.print_exc()
+
+
+def _make_task_from_durable(
+    item: dict[str, Any],
+) -> tuple[Callable[[JobControl], None], str, dict[str, Any]]:
+    job_key = str(item.get("job_key") or f"restored_{uuid.uuid4().hex[:12]}")
+    kind = (item.get("kind") or "generate").lower()
+    pid = item.get("project_id")
+    gen_raw = item.get("generate_payload")
+    res_raw = item.get("resume_payload") or {}
+    label = item.get("label") or "Restored job…"
+    prompt_preview = item.get("prompt_preview") or ""
+    title = item.get("title")
+
+    if pid and not str(pid).startswith(("pending_", "resume_")):
+        st = load_state(str(pid), settings)
+        if st and st.plan and st.plan.shots:
+            kind = "resume"
+            if not res_raw and isinstance(gen_raw, dict):
+                res_raw = _resume_payload_from_generate(gen_raw)
+            label = f"Resuming {pid} (restored)…"
+            title = title or (st.plan.title if st.plan else None)
+            prompt_preview = prompt_preview or (st.user_prompt or "")[:120]
+
+    if kind == "resume":
+        if not pid:
+            raise ValueError("resume durable item missing project_id")
+        req = ResumeRequest(**(res_raw or {}))
+
+        def task(control: JobControl, _pid=str(pid), _req=req, _jk=job_key) -> None:
+            _run_resume_job(_pid, _req, _jk, control)
+
+        fields = {
+            "kind": "resume",
+            "generate_payload": gen_raw if isinstance(gen_raw, dict) else None,
+            "resume_payload": req.model_dump(),
+            "project_id": str(pid),
+            "label": label,
+            "prompt_preview": prompt_preview,
+            "title": title,
+            "restored": True,
+        }
+        return task, job_key, fields
+
+    if not isinstance(gen_raw, dict):
+        raise ValueError("generate durable item missing generate_payload")
+    gen_req = GenerateRequest(**gen_raw)
+
+    def task(control: JobControl, _req=gen_req, _jk=job_key) -> None:
+        _run_job(_req, _jk, control)
+
+    fields = {
+        "kind": "generate",
+        "generate_payload": gen_req.model_dump(),
+        "resume_payload": None,
+        "project_id": str(pid) if pid and not str(pid).startswith("pending_") else None,
+        "label": label or "Starting pipeline (restored)…",
+        "prompt_preview": prompt_preview or gen_req.prompt[:120],
+        "title": title,
+        "restored": True,
+    }
+    return task, job_key, fields
+
+
+def _skip_restored_item(item: dict[str, Any]) -> str | None:
+    pid = item.get("project_id")
+    if not pid or str(pid).startswith(("pending_", "resume_")):
+        if item.get("kind") == "generate" and item.get("generate_payload"):
+            return None
+        if item.get("kind") == "resume":
+            return "resume without project_id"
+        return "no recoverable payload" if not item.get("generate_payload") else None
+
+    st = load_state(str(pid), settings)
+    if not st:
+        if item.get("kind") == "generate" and item.get("generate_payload"):
+            return None
+        return f"project {pid} missing"
+    status = (st.status or "").lower()
+    if status in ("completed", "completed_no_assemble") and st.master_path:
+        from pathlib import Path as _P
+
+        if _P(str(st.master_path)).exists():
+            return f"project {pid} already completed"
+    if status == "cancelled":
+        return f"project {pid} was cancelled"
+    return None
+
+
+def _restore_queue_from_disk() -> None:
+    """Re-load job_queue.json and incomplete projects into the in-memory queue."""
+    global _parallel_override, _restoring_queue, _restore_notes
+    if not settings.queue_persist:
+        return
+
+    _restoring_queue = True
+    notes: list[str] = []
+    recovered = 0
+    recovered_pids: set[str] = set()
+
+    try:
+        doc = load_queue_document(settings)
+        if doc.get("parallel_override") is not None:
+            try:
+                _parallel_override = max(1, min(8, int(doc["parallel_override"])))
+            except Exception:
+                pass
+
+        for item in list(doc.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            reason = _skip_restored_item(item)
+            if reason:
+                notes.append(f"Skipped restored job: {reason}")
+                continue
+            try:
+                task, job_key, fields = _make_task_from_durable(item)
+            except Exception as exc:
+                notes.append(f"Could not restore job {item.get('job_key')}: {exc}")
+                continue
+            pid = fields.get("project_id")
+            try:
+                _enqueue_job(
+                    task,
+                    job_key,
+                    fields.get("label") or "Restored job…",
+                    project_id=pid if pid else None,
+                    prompt_preview=fields.get("prompt_preview") or "",
+                    kind=str(fields.get("kind") or "generate"),
+                    generate_payload=fields.get("generate_payload"),
+                    resume_payload=fields.get("resume_payload"),
+                    title=fields.get("title"),
+                    persist=False,
+                    restored=True,
+                )
+                recovered += 1
+                if pid:
+                    recovered_pids.add(str(pid))
+            except HTTPException as he:
+                notes.append(f"Skip restore {job_key}: {he.detail}")
+            except Exception as exc:
+                notes.append(f"Skip restore {job_key}: {exc}")
+
+        if settings.queue_auto_resume_interrupted:
+            for p in list_projects(settings):
+                pid = p.get("project_id")
+                if not pid or str(pid) in recovered_pids:
+                    continue
+                if not p.get("resumable"):
+                    continue
+                st_name = (p.get("status") or "").lower()
+                if st_name == "cancelled":
+                    continue
+                if not _is_incomplete_project_status(st_name):
+                    continue
+
+                state = load_state(str(pid), settings)
+                if not state or not state.plan or not state.plan.shots:
+                    continue
+                try:
+                    if (state.status or "").lower() != "interrupted":
+                        state.status = "interrupted"
+                        state.log = list(state.log or []) + [
+                            "Interrupted by process exit — re-queued on server restart."
+                        ]
+                        root = settings.output_root / str(pid)
+                        (root / "state.json").write_text(
+                            state.model_dump_json(indent=2), encoding="utf-8"
+                        )
+                except Exception:
+                    pass
+
+                temp_id = f"resume_{pid}_{uuid.uuid4().hex[:8]}"
+                req = ResumeRequest(redo_failed=True)
+                title = state.plan.title if state.plan else str(pid)
+
+                def task(
+                    control: JobControl, _pid=str(pid), _req=req, _jk=temp_id
+                ) -> None:
+                    _run_resume_job(_pid, _req, _jk, control)
+
+                try:
+                    _enqueue_job(
+                        task,
+                        temp_id,
+                        f"Resuming {pid} (interrupted)…",
+                        project_id=str(pid),
+                        prompt_preview=title,
+                        kind="resume",
+                        resume_payload=req.model_dump(),
+                        title=title,
+                        persist=False,
+                        restored=True,
+                    )
+                    recovered += 1
+                    recovered_pids.add(str(pid))
+                    notes.append(f"Re-queued interrupted project {pid}")
+                except HTTPException:
+                    pass
+                except Exception as exc:
+                    notes.append(f"Failed to re-queue {pid}: {exc}")
+
+        if recovered:
+            notes.insert(
+                0, f"Restored {recovered} job(s) from previous session — resuming queue."
+            )
+        _restore_notes = notes[-40:]
+    finally:
+        _restoring_queue = False
+        _persist_queue_safe()
 
 
 def _prune_dead_workers() -> None:
@@ -480,6 +857,9 @@ def _pump_queue() -> None:
             logs = list(j.get("log") or [])
             logs.append(item.get("label") or "Starting…")
             j["log"] = logs[-500:]
+            for k in ("kind", "generate_payload", "resume_payload", "enqueued_at"):
+                if item.get(k) is not None and j.get(k) is None:
+                    j[k] = item.get(k)
             _jobs[job_key] = j
 
             task_fn: Callable[[JobControl], None] = item["task"]
@@ -494,11 +874,18 @@ def _pump_queue() -> None:
                 try:
                     task(control)
                 except Exception as exc:  # noqa: BLE001
-                    # Belts-and-suspenders if task didn't record its own error
                     with _lock:
                         j = _jobs.get(key) or {}
                         st = (j.get("status") or "").lower()
-                        if st in ("", "queued", "running", "planning", "generating", "reviewing", "assembling"):
+                        if st in (
+                            "",
+                            "queued",
+                            "running",
+                            "planning",
+                            "generating",
+                            "reviewing",
+                            "assembling",
+                        ):
                             j["status"] = "error"
                             j["last_message"] = str(exc)
                             logs = list(j.get("log") or [])
@@ -523,7 +910,7 @@ def _pump_queue() -> None:
                     with _lock:
                         _workers.pop(key, None)
                         _controls.pop(key, None)
-                    # Start next queued job without holding the lock (avoid re-entry stalls)
+                    _persist_queue_safe()
                     try:
                         _pump_queue()
                     except Exception:
@@ -533,6 +920,7 @@ def _pump_queue() -> None:
             _workers[job_key] = t
             t.start()
         _queue_positions()
+    _persist_queue_safe()
 
 
 def _enqueue_job(
@@ -542,28 +930,49 @@ def _enqueue_job(
     *,
     project_id: str | None = None,
     prompt_preview: str = "",
+    kind: str = "generate",
+    generate_payload: dict[str, Any] | None = None,
+    resume_payload: dict[str, Any] | None = None,
+    title: str | None = None,
+    persist: bool = True,
+    restored: bool = False,
 ) -> dict[str, Any]:
     """Enqueue a generate/resume job; starts immediately if a parallel slot is free."""
+    import time as _time
+
     with _lock:
         if project_id:
             existing = _jobs.get(project_id)
             if existing and _is_active_status(existing.get("status")):
-                raise HTTPException(
-                    409,
-                    f"Project {project_id} is already queued or running",
-                )
+                ex_key = existing.get("job_key")
+                if not (restored and ex_key == temp_id):
+                    raise HTTPException(
+                        409,
+                        f"Project {project_id} is already queued or running",
+                    )
+
+        _queue[:] = [i for i in _queue if i.get("job_key") != temp_id]
 
         job = {
             "status": "queued",
             "project_id": project_id or temp_id,
             "job_key": temp_id,
-            "log": [f"{label} — queued"],
-            "last_message": "Queued",
+            "log": [
+                f"{label} — restored from previous session"
+                if restored
+                else f"{label} — queued"
+            ],
+            "last_message": "Queued (restored)" if restored else "Queued",
             "temp": not bool(project_id),
             "queue_position": len(_queue) + 1,
             "label": label,
             "prompt_preview": (prompt_preview or "")[:120],
-            "title": None,
+            "title": title,
+            "kind": kind,
+            "generate_payload": generate_payload,
+            "resume_payload": resume_payload,
+            "enqueued_at": _time.time(),
+            "restored": restored,
         }
         _jobs[temp_id] = job
         if project_id:
@@ -574,6 +983,12 @@ def _enqueue_job(
                 "label": label,
                 "task": task,
                 "project_id": project_id,
+                "kind": kind,
+                "generate_payload": generate_payload,
+                "resume_payload": resume_payload,
+                "prompt_preview": (prompt_preview or "")[:120],
+                "title": title,
+                "enqueued_at": job["enqueued_at"],
             }
         )
         depth = len(_queue)
@@ -582,6 +997,8 @@ def _enqueue_job(
         will_start_soon = live_n < max_p
 
     _pump_queue()
+    if persist:
+        _persist_queue_safe()
 
     with _lock:
         j2 = _jobs.get(temp_id) or job
@@ -603,6 +1020,7 @@ def _enqueue_job(
         "status": "running" if started else "queued",
         "queue_position": None if started else (pos or depth),
         "max_parallel_jobs": _effective_parallel(),
+        "restored": restored,
     }
 
 
@@ -647,8 +1065,10 @@ def _run_job(req: GenerateRequest, temp_id: str, control: JobControl) -> None:
             j["temp"] = False
             j["status"] = "running"
             j["job_key"] = temp_id
+            j["kind"] = j.get("kind") or "generate"
             _jobs[temp_id] = j
             _jobs[project_id] = j
+        _persist_queue_safe()
 
     def log(msg: str) -> None:
         logs.append(msg)
@@ -718,8 +1138,10 @@ def _run_job(req: GenerateRequest, temp_id: str, control: JobControl) -> None:
                         )
                 except Exception:
                     pass
+        _persist_queue_safe()
     except Exception as e:
         with _lock:
+            prev = _jobs.get(temp_id) or {}
             _jobs[temp_id] = {
                 "status": "error",
                 "project_id": project_id_holder.get("id") or temp_id,
@@ -727,7 +1149,14 @@ def _run_job(req: GenerateRequest, temp_id: str, control: JobControl) -> None:
                 "log": logs[-500:] + [str(e)],
                 "last_message": str(e),
                 "temp": not bool(project_id_holder.get("id")),
+                "kind": prev.get("kind") or "generate",
+                "generate_payload": prev.get("generate_payload"),
+                "resume_payload": prev.get("resume_payload"),
             }
+            pid = project_id_holder.get("id")
+            if pid:
+                _jobs[str(pid)] = _jobs[temp_id]
+        _persist_queue_safe()
 
 
 def _run_resume_job(
@@ -745,8 +1174,10 @@ def _run_resume_job(
             j["temp"] = False
             j["status"] = "running"
             j["job_key"] = temp_id
+            j["kind"] = j.get("kind") or "resume"
             _jobs[temp_id] = j
             _jobs[pid] = j
+        _persist_queue_safe()
 
     def log(msg: str) -> None:
         logs.append(msg)
@@ -791,8 +1222,10 @@ def _run_resume_job(
             j["job_key"] = temp_id
             _jobs[temp_id] = j
             _jobs[project_id] = j
+        _persist_queue_safe()
     except Exception as e:
         with _lock:
+            prev = _jobs.get(temp_id) or {}
             err = {
                 "status": "error",
                 "project_id": project_id,
@@ -800,9 +1233,13 @@ def _run_resume_job(
                 "log": logs[-500:] + [str(e)],
                 "last_message": str(e),
                 "temp": False,
+                "kind": prev.get("kind") or "resume",
+                "generate_payload": prev.get("generate_payload"),
+                "resume_payload": prev.get("resume_payload") or req.model_dump(),
             }
             _jobs[temp_id] = err
             _jobs[project_id] = err
+        _persist_queue_safe()
 
 
 @app.post("/api/generate")
@@ -818,6 +1255,7 @@ async def generate(req: GenerateRequest):
 
     temp_id = f"pending_{uuid.uuid4().hex[:12]}"
     preview = req.prompt.strip().replace("\n", " ")
+    payload = req.model_dump()
 
     def task(control: JobControl) -> None:
         _run_job(req, temp_id, control)
@@ -827,6 +1265,8 @@ async def generate(req: GenerateRequest):
         temp_id,
         "Starting pipeline…",
         prompt_preview=preview,
+        kind="generate",
+        generate_payload=payload,
     )
 
 
@@ -839,6 +1279,7 @@ async def resume_project(project_id: str, req: ResumeRequest = ResumeRequest()):
         raise HTTPException(400, "Project has no plan — cannot resume")
 
     temp_id = f"resume_{project_id}_{uuid.uuid4().hex[:8]}"
+    res_payload = req.model_dump()
 
     def task(control: JobControl) -> None:
         _run_resume_job(project_id, req, temp_id, control)
@@ -850,6 +1291,9 @@ async def resume_project(project_id: str, req: ResumeRequest = ResumeRequest()):
         f"Resuming {project_id}…",
         project_id=project_id,
         prompt_preview=title,
+        kind="resume",
+        resume_payload=res_payload,
+        title=title,
     )
     with _lock:
         j = _jobs.get(temp_id)
@@ -858,6 +1302,7 @@ async def resume_project(project_id: str, req: ResumeRequest = ResumeRequest()):
             j["temp"] = False
             j["title"] = title
             _jobs[project_id] = j
+    _persist_queue_safe()
     return out
 
 
@@ -875,12 +1320,16 @@ async def stop_generate(body: StopBody | None = None):
         ]
         queued_n = len(_queue)
 
-    orphan_pids = _mark_orphaned_projects_stopped()
+    stop_everything = body.stop_all or (not body.job_ref and not body.project_id)
 
-    if not live and not worker_alive and not queued_n:
+    orphan_pids: list[str] = []
+    if not live and not worker_alive and not queued_n and stop_everything:
+        # Explicit stop with nothing live — cancel sticky disk projects (manual)
+        orphan_pids = _mark_orphaned_projects_stopped()
         msg = "No running generation"
         if orphan_pids:
             msg = f"Cleared stuck job status for {', '.join(orphan_pids[:3])}"
+            _persist_queue_safe()
         return {
             "ok": True,
             "message": msg,
@@ -888,7 +1337,6 @@ async def stop_generate(body: StopBody | None = None):
             "orphaned": orphan_pids,
         }
 
-    stop_everything = body.stop_all or (not body.job_ref and not body.project_id)
     if stop_everything:
         with _lock:
             targets = list(_controls.keys())
@@ -975,6 +1423,7 @@ async def stop_generate(body: StopBody | None = None):
     if cleared_queued:
         parts.append(f"cleared {len(cleared_queued)} queued")
     msg = "Stop requested — " + (", ".join(parts) if parts else "waiting for wind-down")
+    _persist_queue_safe()
 
     return {
         "ok": True,
@@ -1002,6 +1451,7 @@ async def dequeue_job(job_ref: str):
             j["log"] = logs[-500:]
             _jobs[job_ref] = j
         _queue_positions()
+    _persist_queue_safe()
     if not removed and not j:
         raise HTTPException(404, "Queue entry not found")
     return {"ok": True, "removed": bool(removed), "job_ref": job_ref}
@@ -1061,6 +1511,7 @@ async def set_parallel_setting(body: ParallelJobsBody):
     with _lock:
         _parallel_override = int(body.max_parallel_jobs)
     _pump_queue()
+    _persist_queue_safe()
     return {
         "ok": True,
         "max_parallel_jobs": _effective_parallel(),
@@ -1069,26 +1520,34 @@ async def set_parallel_setting(body: ParallelJobsBody):
 
 def _mark_orphaned_projects_stopped() -> list[str]:
     """
-    Projects left as planning/running on disk after process exit show as live forever.
-    When no worker is alive, mark those non-terminal states cancelled so UI unlocks.
+    Explicit stop-time cleanup: sticky disk statuses with no live worker become cancelled.
+    Does NOT run automatically on job list polls (that would kill restart resume).
     """
     if _any_worker_alive():
         return []
+    with _lock:
+        if _queue:
+            return []
+        active_pids = {
+            str(v.get("project_id"))
+            for v in _jobs.values()
+            if _is_active_status(v.get("status")) and v.get("project_id")
+        }
     marked: list[str] = []
-    sticky = {"planning", "assembling", "running", "generating", "reviewing", "cancelling"}
+    sticky = {"planning", "assembling", "running", "generating", "reviewing", "cancelling", "interrupted"}
     for p in list_projects(settings):
         st = (p.get("status") or "").lower()
         if st not in sticky:
             continue
         pid = p.get("project_id")
-        if not pid:
+        if not pid or str(pid) in active_pids:
             continue
         state = load_state(str(pid), settings)
         if not state or (state.status or "").lower() not in sticky:
             continue
         state.status = "cancelled"
         state.log = list(state.log or []) + [
-            "Stopped: orphaned job (no active worker — previous run interrupted or server restarted)."
+            "Stopped: cleared stuck status (no active worker)."
         ]
         try:
             root = settings.output_root / str(pid)
@@ -1115,9 +1574,6 @@ async def jobs():
     """In-memory jobs plus disk logs. Live only when a worker is actually running."""
     worker_alive = _any_worker_alive()
 
-    if not worker_alive:
-        _mark_orphaned_projects_stopped()
-
     with _lock:
         active = {k: dict(v) for k, v in _jobs.items()}
         queue_items = []
@@ -1140,8 +1596,22 @@ async def jobs():
         control_pids = {
             (c.project_id or ""): c for c in _controls.values() if c.project_id
         }
+        restore_notes = list(_restore_notes)
+
+    # Inject restore messages once into any active job log surface
+    if restore_notes:
+        for note in restore_notes:
+            for key in list(active.keys())[:3]:
+                job = dict(active[key])
+                logs = list(job.get("log") or [])
+                if note not in logs:
+                    logs.insert(0, note)
+                    job["log"] = logs[-500:]
+                    active[key] = job
 
     if not worker_alive:
+        # Soft-mark: no worker underneath a "running" memory entry (crashed process)
+        # Keep as interrupted so restart restore can pick it up; do not auto-cancel.
         for key, job in list(active.items()):
             st = (job.get("status") or "").lower()
             if st == "queued":
@@ -1149,14 +1619,18 @@ async def jobs():
                     continue
             if _is_running_status(job.get("status")) or job.get("status") == "cancelling":
                 job = dict(job)
-                job["status"] = "cancelled"
+                job["status"] = "interrupted"
                 logs = list(job.get("log") or [])
-                logs.append("Stopped: worker is no longer running.")
+                msg = "Interrupted: worker is no longer running (will auto-resume on restart)."
+                if msg not in logs:
+                    logs.append(msg)
                 job["log"] = logs[-500:]
                 job["last_message"] = logs[-1]
                 active[key] = job
                 with _lock:
-                    _jobs[key] = job
+                    # only update if still not assigned a live worker
+                    if key not in _workers or not (_workers.get(key) and _workers[key].is_alive()):
+                        _jobs[key] = job
 
     projects = list_projects(settings)
     live_from_mem = worker_alive and any(

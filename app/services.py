@@ -532,8 +532,89 @@ def ensure_runtime_services(
     return report
 
 
+def invalidate_service_caches() -> None:
+    """Drop cached health probes so the next check hits live services."""
+    global _h3_status_cache
+    _h3_status_cache = {"ts": 0.0, "value": None, "key": ""}
+
+
+def heal_runtime_services(
+    settings: Settings,
+    log: LogFn | None = None,
+    *,
+    need_comfy: bool = True,
+    need_ollama: bool = False,
+    reason: str = "",
+) -> dict[str, Any]:
+    """
+    Self-heal dependency stack (ComfyUI / Ollama) without waiting on the user.
+
+    Unlike ensure_runtime_services, this can free a hung port that no longer
+    answers HTTP, then (re)start the correct MiniMax-H3 Comfy install.
+    Safe to call mid-generation when a dependency becomes unreachable.
+    """
+    invalidate_service_caches()
+    tag = (reason or "runtime").strip() or "runtime"
+    _emit(log, f"Self-heal ({tag}): restoring runtime services…")
+    report: dict[str, Any] = {
+        "reason": tag,
+        "comfy": None,
+        "ollama": None,
+        "actions": [],
+    }
+
+    if need_comfy:
+        up = comfy_reachable(settings, timeout=2.0)
+        if not up and settings.auto_start_comfy:
+            try:
+                pids = _pids_listening_on_port(settings.comfyui_port)
+            except Exception:
+                pids = []
+            if pids:
+                _emit(
+                    log,
+                    f"Self-heal: port {settings.comfyui_port} held by {pids} but not answering — freeing…",
+                )
+                stop = stop_process_on_comfy_port(settings, log=log)
+                report["actions"].append({"action": "free_comfy_port", "result": stop})
+            report["comfy"] = ensure_h3_comfy(settings, log=log)
+        elif not up:
+            report["comfy"] = ensure_h3_comfy(settings, log=log)
+        else:
+            cap = comfy_h3_status(settings, use_cache=False)
+            if cap.get("ok") or not settings.comfy_require_h3_nodes:
+                report["comfy"] = {
+                    "ok": True,
+                    "status": "healthy",
+                    "url": settings.comfy_base_url,
+                    "h3": cap,
+                }
+                _emit(log, f"Self-heal: ComfyUI healthy at {settings.comfy_base_url}")
+            else:
+                # Wrong install on the port / missing H3 — replace if allowed
+                report["comfy"] = ensure_h3_comfy(settings, log=log)
+        invalidate_service_caches()
+
+    if need_ollama and settings.local_llm_enabled:
+        if ollama_reachable(settings, timeout=2.0):
+            report["ollama"] = {"ok": True, "status": "healthy"}
+            _emit(log, "Self-heal: Ollama healthy")
+        elif settings.auto_start_ollama:
+            report["ollama"] = start_ollama(settings, log=log)
+        else:
+            report["ollama"] = {
+                "ok": False,
+                "status": "not_running",
+                "error": "Ollama down and AUTO_START_OLLAMA=false",
+            }
+
+    return report
+
+
 def ensure_comfy_or_raise(settings: Settings, log: LogFn | None = None) -> None:
-    report = ensure_runtime_services(settings, log=log, need_comfy=True, need_ollama=False)
+    report = heal_runtime_services(
+        settings, log=log, need_comfy=True, need_ollama=False, reason="ensure_or_raise"
+    )
     comfy = report.get("comfy") or {}
     if not comfy.get("ok") and not comfy_reachable(settings):
         raise RuntimeError(
@@ -712,7 +793,7 @@ def _essentials_prompt(blocking: list[str], warnings: list[str], wait_sec: int) 
         lines.append("BLOCKING (fix these before Generate):")
         lines.extend(f"  • {b}" for b in blocking)
         lines.append(
-            f"Auto-start will wait at most {wait_sec // 60} min ({wait_sec}s) for ComfyUI/Ollama, then stop with an error."
+            f"Self-heal will auto-start ComfyUI/Ollama (≤{wait_sec // 60} min / {wait_sec}s) and keep the job going."
         )
     if warnings:
         lines.append("Warnings:")

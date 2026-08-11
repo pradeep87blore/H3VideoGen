@@ -133,12 +133,55 @@ class LLMRouter:
                         f"{self.settings.local_llm_base_url} model={resolved}"
                         + (" (vision)" if want_imgs else " (text)")
                     )
-                    text, provider = self.local.generate_text(
-                        system=system,
-                        user=user,
-                        temperature=temperature,
-                        images=images,
-                    )
+                    try:
+                        text, provider = self.local.generate_text(
+                            system=system,
+                            user=user,
+                            temperature=temperature,
+                            images=images,
+                        )
+                    except Exception as local_exc:
+                        # Self-heal Ollama once, then retry before cascading
+                        msg_l = str(local_exc).lower()
+                        if self.settings.auto_start_ollama and any(
+                            s in msg_l
+                            for s in (
+                                "connect",
+                                "refused",
+                                "10061",
+                                "10054",
+                                "timed out",
+                                "timeout",
+                                "unreachable",
+                                "reset",
+                            )
+                        ):
+                            self._emit(f"{purpose}: local LLM down — self-heal Ollama…")
+                            try:
+                                from ..services import heal_runtime_services
+
+                                heal_runtime_services(
+                                    self.settings,
+                                    log=self.log,
+                                    need_comfy=False,
+                                    need_ollama=True,
+                                    reason="local_llm",
+                                )
+                            except Exception as heal_exc:
+                                self._emit(f"{purpose}: Ollama self-heal failed: {heal_exc}")
+                            else:
+                                text, provider = self.local.generate_text(
+                                    system=system,
+                                    user=user,
+                                    temperature=temperature,
+                                    images=images,
+                                )
+                                job_control.check()
+                                data = extract_json(text)
+                                self.last_provider = provider
+                                self._emit(f"{purpose}: ok via {provider} (after self-heal)")
+                                return LLMResponse(data=data, provider=provider)
+                        raise
                     job_control.check()
                     data = extract_json(text)
                     self.last_provider = provider

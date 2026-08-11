@@ -334,7 +334,7 @@ function showEssentialsBanner(ess, { force = false } = {}) {
 
   const waitMin = Math.max(1, Math.round((ess.wait_limit_sec || 300) / 60));
   title.textContent = blocking.length
-    ? `Prerequisites missing — will fail within ~${waitMin} min if not fixed`
+    ? `Prerequisites missing — self-healing (auto-start, ≤~${waitMin} min)`
     : "Prerequisites: soft warnings";
   body.textContent =
     ess.prompt ||
@@ -342,18 +342,13 @@ function showEssentialsBanner(ess, { force = false } = {}) {
   banner.classList.toggle("warn", !blocking.length);
   banner.classList.remove("hidden");
 
+  // Silent self-heal: auto-start missing services instead of blocking on alert()
   if (blocking.length && sig !== essentialsAlertedKey) {
     essentialsAlertedKey = sig;
-    const msg =
-      "H3 Video Gen needs tools that are not ready:\n\n" +
-      blocking.map((b) => "• " + b).join("\n") +
-      `\n\nAuto-start waits up to ~${waitMin} minutes, then stops with an error in the log.\n` +
-      "Use “Start services” on the banner, or start ComfyUI / Ollama manually.";
-    try {
-      window.alert(msg);
-    } catch (_) {
-      /* ignore if blocked */
-    }
+    appendLog(
+      "Prerequisites missing — self-healing services in the background (no user action required)…"
+    );
+    startEssentialServices().catch(() => {});
   }
 }
 
@@ -890,16 +885,12 @@ $("btn-run").addEventListener("click", async () => {
     const hj = await hr.json();
     if (hj.essentials && !hj.essentials.ready_for_generate) {
       showEssentialsBanner(hj.essentials, { force: true });
-      const waitMin = Math.max(1, Math.round((hj.essentials.wait_limit_sec || 300) / 60));
-      const okContinue = window.confirm(
-        "Required tools are not ready:\n\n" +
-          (hj.essentials.blocking || []).map((b) => "• " + b).join("\n") +
-          `\n\nGenerate will try auto-start and stop within ~${waitMin} minutes if they stay down.\n\nContinue?`
-      );
-      if (!okContinue) return;
+      const blockers = (hj.essentials.blocking || []).join(" · ") || "required tools offline";
+      appendLog(`Tools not ready (${blockers}) — self-healing (auto-start) then continuing…`);
+      await startEssentialServices();
     }
   } catch (_) {
-    /* proceed */
+    /* pipeline will self-heal again at job start */
   }
 
   resultEl.classList.add("hidden");

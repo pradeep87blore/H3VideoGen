@@ -7,7 +7,16 @@ from typing import Any, Callable
 
 from ..config import Settings
 from ..llm import LLMRouter
-from ..models import CriticReview, CriticVerdict, NarrativeMode, ProductionPlan, ShotPlan, normalize_narrative_mode
+from ..models import (
+    CharacterDesign,
+    CharacterSheetPose,
+    CriticReview,
+    CriticVerdict,
+    NarrativeMode,
+    ProductionPlan,
+    ShotPlan,
+    normalize_narrative_mode,
+)
 
 LogFn = Callable[[str], None]
 
@@ -92,6 +101,28 @@ Rules:
 - CAST LEAKAGE / wrong banned characters → hard RETAKE
 - style mismatch, empty unreadable frame → RETAKE
 - Always provide retake_instructions and revised_prompt for the next still/video prompt
+Return ONLY JSON."""
+
+CRITIC_SYSTEM_CHARACTER_SHEET = """You are a harsh character-bible art director for AI video.
+You review multi-view CHARACTER SHEET stills used as identity locks (R2V references).
+
+Score 0–10 on:
+- composition (clear pose, readable silhouette, usable as a ref)
+- character_fidelity (matches the identity description / lock; single correct character)
+- style_consistency (matches the production style bible)
+- story_clarity (for sheets: pose intent is clear — face/outfit readable)
+- youtube_polish (hands, eyes, anatomy, text, mush, unwanted props/extra people)
+
+For motion_readability: score ~7–8 unless the pose is completely unreadable.
+
+Rules:
+- overall_score < threshold → RETAKE
+- Multiple people, text, logos, watermarks → RETAKE
+- Face unreadable when the pose should show the face → RETAKE
+- Wrong outfit / hair / species vs identity lock → RETAKE
+- Style that fights the style bible (e.g. photoreal when animated) → RETAKE
+- Plain studio / clean background preferred; busy scenes that bury identity → RETAKE
+Always provide retake_instructions and revised_prompt for the next sheet still.
 Return ONLY JSON."""
 
 
@@ -249,4 +280,125 @@ JSON schema:
         elif review.verdict == CriticVerdict.pass_ and review.overall_score < 8.0:
             review.youtube_ready = False
 
+        return review
+
+    def review_character_pose(
+        self,
+        plan: ProductionPlan,
+        character: CharacterDesign,
+        pose: CharacterSheetPose,
+        image_path: Path,
+        *,
+        take: int = 1,
+        render_prompt_used: str = "",
+        peer_images: list[Path] | None = None,
+    ) -> CriticReview:
+        """QA a single character-sheet still (optionally with peer views for identity lock)."""
+        paths = [Path(image_path)]
+        for p in peer_images or []:
+            if p and Path(p).exists() and Path(p) not in paths:
+                paths.append(Path(p))
+        existing = [p for p in paths if p.exists()]
+        side = f"{character.id}_{pose.pose_id}"
+        if not existing:
+            return CriticReview(
+                shot_id=side,
+                take=take,
+                verdict=CriticVerdict.retake,
+                overall_score=0,
+                youtube_ready=False,
+                issues=["No sheet still to review"],
+                retake_instructions="Regenerate this character sheet pose still.",
+                summary="Cannot review character sheet without an image.",
+            )
+
+        pose_label = pose.label or pose.pose_id
+        peer_note = ""
+        if len(existing) > 1:
+            peer_note = (
+                "\nIDENTITY CHECK: Additional images are OTHER views of the SAME character. "
+                "They must match face, hair, body, and outfit. If they diverge, RETAKE and "
+                "describe how to unify identity."
+            )
+
+        brief = f"""Review this CHARACTER SHEET still for identity-lock quality.
+
+PRODUCTION: {plan.title}
+STYLE BIBLE: {plan.style_bible}
+CHARACTER LOCK: {plan.character_lock}
+
+SHEET SUBJECT:
+- id: {character.id}
+- name: {character.name}
+- look: {character.look or character.board_prompt or "(see lock)"}
+- pose: {pose.pose_id} ({pose_label})
+- pose intent: {pose.prompt or pose_label}
+
+Image 1 is the pose under review.{peer_note}
+
+PROMPT USED (truncated):
+{(render_prompt_used or "")[:2000]}
+
+TAKE: {take}
+
+JSON schema:
+{{
+  "shot_id": "{side}",
+  "take": {take},
+  "verdict": "PASS" | "RETAKE" | "REJECT",
+  "overall_score": 0-10 number,
+  "youtube_ready": false,
+  "scores": {{
+    "composition": 0-10,
+    "character_fidelity": 0-10,
+    "style_consistency": 0-10,
+    "motion_readability": 0-10,
+    "story_clarity": 0-10,
+    "youtube_polish": 0-10
+  }},
+  "strengths": ["..."],
+  "issues": ["critical problems"],
+  "retake_instructions": "mandatory fixes for next sheet still",
+  "revised_prompt": "improved character sheet still prompt for this pose",
+  "summary": "2-3 sentences as art director"
+}}
+"""
+        result = self.llm.critic_review_payload(
+            system=CRITIC_SYSTEM_CHARACTER_SHEET,
+            user=brief,
+            images=existing,
+            offline_kwargs={
+                "shot_id": side,
+                "take": take,
+                "frame_paths": existing,
+                "shot_visual": pose.prompt or character.board_prompt or character.look,
+                "allowed_names": [character.name],
+                "banned_names": [
+                    c.name
+                    for c in (plan.characters or [])
+                    if c.id != character.id and c.name
+                ],
+            },
+        )
+        self.last_provider = result.provider
+        data = result.data
+        v = str(data.get("verdict", "RETAKE")).upper()
+        if v == "PASS":
+            data["verdict"] = CriticVerdict.pass_
+        elif v == "REJECT":
+            data["verdict"] = CriticVerdict.reject
+        else:
+            data["verdict"] = CriticVerdict.retake
+        data["shot_id"] = side
+        data["take"] = take
+        data["youtube_ready"] = False
+
+        review = CriticReview.model_validate(data)
+        threshold = float(self.settings.character_sheet_critic_threshold)
+        if review.overall_score < threshold and review.verdict == CriticVerdict.pass_:
+            review.verdict = CriticVerdict.retake
+            review.issues = list(review.issues) + [
+                f"Score {review.overall_score} below sheet threshold {threshold}"
+            ]
+        review.youtube_ready = False
         return review
