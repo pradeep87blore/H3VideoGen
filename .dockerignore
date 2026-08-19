@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+outputs/
+jobs/
+.env
+.git/
+.gitignore
+*.plan.md
+node_modules/

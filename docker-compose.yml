@@ -1,0 +1,51 @@
+services:
+  gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - models:/models
+    ports:
+      - "8188:8188"
+      - "11434:11434"
+    environment:
+      COMFYUI_ROOT: /opt/ComfyUI
+      OLLAMA_MODELS: /models/ollama
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    restart: unless-stopped
+    depends_on:
+      - gpu
+    ports:
+      - "7860:7860"
+    volumes:
+      - output:/app/outputs
+    env_file:
+      - .env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "7860"
+      OUTPUT_ROOT: /app/outputs
+      COMFYUI_HOST: gpu
+      COMFYUI_PORT: "8188"
+      LOCAL_LLM_BASE_URL: "http://gpu:11434/v1"
+      AUTO_START_COMFY: "false"
+      AUTO_START_OLLAMA: "false"
+      AI_ROOT: /models
+      FFMPEG_PATH: ffmpeg
+      FFPROBE_PATH: ffprobe
+
+volumes:
+  models:
+  output:

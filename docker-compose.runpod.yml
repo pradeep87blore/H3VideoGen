@@ -1,0 +1,20 @@
+# Overlay for a privileged Docker-capable RunPod.
+# This ComfyUI template cannot nest Docker — use native serve instead.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.runpod.yml up -d --build
+services:
+  gpu:
+    volumes:
+      - /workspace/ComfyUI/models:/models
+      - /workspace/ComfyUI/output:/opt/ComfyUI/output
+    environment:
+      SKIP_OLLAMA_PULL: "1"
+  app:
+    ports:
+      - "7860:7860"
+    volumes:
+      - /workspace/H3VideoGen/outputs:/app/outputs
+    environment:
+      HOST: "0.0.0.0"
+      OUTPUT_ROOT: /app/outputs
+      COMFY_OUTPUT_ROOT: /opt/ComfyUI/output
