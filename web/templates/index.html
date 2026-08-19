@@ -87,7 +87,7 @@
         </label>
         <label class="field grow">
           <span>Max retakes / shot</span>
-          <input type="number" id="max_retakes" value="2" min="0" max="4" />
+          <input type="number" id="max_retakes" value="2" min="0" max="2" />
         </label>
         <label class="field grow" title="How many generations may run at once. 1 = sequential queue. Higher uses more VRAM.">
           <span>Parallel jobs</span>
@@ -99,7 +99,7 @@
         <button type="button" class="btn primary" id="btn-run" title="Starts now if a slot is free, otherwise queues">Generate / Queue</button>
         <button type="button" class="btn danger" id="btn-stop" disabled title="Stop selected job (or all if none selected)">Stop</button>
       </div>
-      <p class="hint">Jobs queue when slots are full. A shot that fails all retakes aborts that job. Critic: {{ critic_threshold }}/10 · ComfyUI: {{ comfy_url }}.</p>
+      <p class="hint">Jobs queue when slots are full. Max 3 H3 encodes per shot (2 retakes); repeated motion bugs stop early. Preclip stills run before each encode. Critic: {{ critic_threshold }}/10 · ComfyUI: {{ comfy_url }}.</p>
     </section>
 
     <section class="panel side stack-side">

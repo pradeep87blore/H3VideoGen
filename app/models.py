@@ -181,7 +181,7 @@ class GenerateRequest(BaseModel):
     )
     target_duration_sec: float = Field(default=60.0, ge=10, le=180)
     max_shots: int = Field(default=12, ge=2, le=24)
-    max_retakes: Optional[int] = None
+    max_retakes: Optional[int] = Field(default=None, ge=0, le=4)
     auto_assemble: bool = True
     seed_base: int = 42
     h3_mode: Optional[str] = None
@@ -194,7 +194,7 @@ class GenerateRequest(BaseModel):
 
 
 class ResumeRequest(BaseModel):
-    max_retakes: Optional[int] = None
+    max_retakes: Optional[int] = Field(default=None, ge=0, le=4)
     auto_assemble: bool = True
     seed_base: int = 42
     h3_mode: Optional[str] = None

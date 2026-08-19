@@ -49,8 +49,9 @@ class Settings(BaseSettings):
     h3_mode: str = Field(default="r2v", alias="H3_MODE")
     h3_ref_image_size: str = Field(default="match", alias="H3_REF_IMAGE_SIZE")  # match | max
     h3_use_prev_shot_ref: bool = Field(default=True, alias="H3_USE_PREV_SHOT_REF")
-    # Previous accepted MP4 as R2V <Video 1> (motion / camera language). Better than a still slot.
-    h3_use_prev_shot_video: bool = Field(default=True, alias="H3_USE_PREV_SHOT_VIDEO")
+    # Previous accepted MP4 as R2V <Video 1>. Off by default: full-clip refs are ~3× slower
+    # and often leak the previous beat. Cut continuity uses last-frame still / I2VA instead.
+    h3_use_prev_shot_video: bool = Field(default=False, alias="H3_USE_PREV_SHOT_VIDEO")
     # T2V/I2V: previous last frame as first_frame; with a preclip still also set last_frame (FL2VA)
     h3_use_prev_as_first_frame: bool = Field(default=True, alias="H3_USE_PREV_AS_FIRST_FRAME")
     # Write overall_soundscape / non_diegetic_music into the H3 prompt (native stereo decode)
@@ -101,8 +102,10 @@ class Settings(BaseSettings):
     default_fps: int = Field(default=24, alias="DEFAULT_FPS")
     default_steps: int = Field(default=16, alias="DEFAULT_STEPS")
     default_length_frames: int = Field(default=124, alias="DEFAULT_LENGTH_FRAMES")
-    max_retakes: int = Field(default=2, alias="MAX_RETAKES")
+    max_retakes: int = Field(default=2, alias="MAX_RETAKES", ge=0, le=4)
     critic_pass_threshold: float = Field(default=7.5, alias="CRITIC_PASS_THRESHOLD")
+    # Stop extra H3 encodes when consecutive clip critics repeat the same temporal issue
+    retake_repeat_stop: bool = Field(default=True, alias="RETAKE_REPEAT_STOP")
     # Pre-clip still gate: generate a cheap scene still + critic before full H3 video
     preclip_still_enabled: bool = Field(default=True, alias="PRECLIP_STILL_ENABLED")
     # auto | gemini | h3_probe | none

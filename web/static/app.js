@@ -549,7 +549,7 @@ async function resumeProject(projectId) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        max_retakes: Number($("max_retakes").value || 2),
+        max_retakes: Math.min(2, Math.max(0, Number($("max_retakes").value || 2))),
         auto_assemble: true,
         seed_base: 42,
         redo_failed: true,
@@ -619,7 +619,7 @@ function formPayload() {
     style: $("style").value.trim(),
     target_duration_sec: Number($("duration").value || 60),
     max_shots: Number($("max_shots").value || 12),
-    max_retakes: Number($("max_retakes").value || 2),
+    max_retakes: Math.min(2, Math.max(0, Number($("max_retakes").value || 2))),
     narrative_mode: ($("narrative_mode") && $("narrative_mode").value) || "character",
     auto_assemble: true,
     seed_base: 42,

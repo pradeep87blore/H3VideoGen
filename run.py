@@ -308,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
     p_gen.add_argument("--style", default=None, help="Visual style (overrides JSON)")
     p_gen.add_argument("--duration", type=float, default=None, help="Target duration seconds")
     p_gen.add_argument("--shots", type=int, default=None, help="Max shots")
-    p_gen.add_argument("--retakes", type=int, default=None, help="Max retakes per shot")
+    p_gen.add_argument("--retakes", type=int, default=None, help="Max retakes per shot (capped by MAX_RETAKES, default 2)")
     p_gen.add_argument("--seed", type=int, default=None, help="Seed base")
     p_gen.add_argument("--h3-mode", dest="h3_mode", default=None, choices=["r2v", "t2v", "auto"])
     p_gen.add_argument(

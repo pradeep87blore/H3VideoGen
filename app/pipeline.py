@@ -19,6 +19,8 @@ from .config import Settings, get_settings
 from .job_control import CancelledError, JobControl
 from .media import assemble_master, extract_frames, extract_last_frame, probe, mux_narration
 from .models import (
+    CriticReview,
+    CriticVerdict,
     GenerateRequest,
     NarrativeMode,
     ProductionPlan,
@@ -28,7 +30,6 @@ from .models import (
     ShotRecord,
     ShotStatus,
     StageTiming,
-    CriticVerdict,
     normalize_narrative_mode,
 )
 from .scene_still import generate_scene_still
@@ -62,6 +63,63 @@ def _elapsed_sec(started: str | None, ended: str | None = None) -> float | None:
     if not b:
         return None
     return round(max(0.0, (b - a).total_seconds()), 2)
+
+
+_COMPLAINT_STOPWORDS = frozenset(
+    """
+    this that with from they them their there which while would could should
+    shot take clip frame video still must have been into over under also just
+    very more than then when your about after before during because through
+    only both each some such same make sure fully clearly really truly
+    """.split()
+)
+_TEMPORAL_MARKERS = (
+    "morph",
+    "temporal",
+    "jump-cut",
+    "jump cut",
+    "teleport",
+    "flicker",
+    "materializ",
+    "sprout",
+    "disappear",
+    "appear out of",
+    "crown",
+    "prologue",
+    "blank gray",
+    "studio background",
+    "identity break",
+    "consistency",
+)
+
+
+def _complaint_tokens(review: CriticReview) -> set[str]:
+    text = " ".join(
+        [
+            review.retake_instructions or "",
+            review.summary or "",
+            " ".join(review.issues or []),
+        ]
+    ).lower()
+    tokens = {
+        t
+        for t in re.findall(r"[a-z0-9']{4,}", text)
+        if t not in _COMPLAINT_STOPWORDS
+    }
+    tokens.update(f"#{m.replace(' ', '_')}" for m in _TEMPORAL_MARKERS if m in text)
+    return tokens
+
+
+def _complaints_repeat(prev: CriticReview, current: CriticReview) -> bool:
+    """True when two consecutive clip critics are asking for the same fix."""
+    a, b = _complaint_tokens(prev), _complaint_tokens(current)
+    if not a or not b:
+        return False
+    markers_a = {t for t in a if t.startswith("#")}
+    markers_b = {t for t in b if t.startswith("#")}
+    if markers_a and markers_b and markers_a & markers_b:
+        return True
+    return (len(a & b) / len(a | b)) >= 0.35
 
 
 class ProductionPipeline:
@@ -441,7 +499,7 @@ class ProductionPipeline:
                     detail=reason,
                 )
 
-            max_retakes = req.max_retakes if req.max_retakes is not None else self.settings.max_retakes
+            max_retakes = self._effective_max_retakes(req.max_retakes)
             self._render_remaining_shots(
                 state,
                 board=board,
@@ -665,7 +723,7 @@ class ProductionPipeline:
                 record.status = ShotStatus.pending
                 record.error = None
 
-            max_retakes = req.max_retakes if req.max_retakes is not None else self.settings.max_retakes
+            max_retakes = self._effective_max_retakes(req.max_retakes)
             self._render_remaining_shots(
                 state,
                 board=board,
@@ -802,6 +860,15 @@ class ProductionPipeline:
             and r.status != ShotStatus.failed
         ]
         if remaining:
+            self._log(
+                state,
+                "Cost profile: "
+                f"max_retakes={max_retakes} (≤{max_retakes + 1} encodes/shot), "
+                f"prev_clip_video={self.settings.h3_use_prev_shot_video}, "
+                f"last_frame_ref={self.settings.h3_use_prev_shot_ref}, "
+                f"preclip_stills={self.settings.preclip_still_enabled}",
+                log,
+            )
             self._stage_start(
                 state,
                 "shots",
@@ -1041,6 +1108,80 @@ class ProductionPipeline:
             det = (det + f" · {record.duration_sec:.1f}s").strip(" ·")
         self._stage_end(state, shot_key, status=status, detail=det)
 
+    def _effective_max_retakes(self, requested: int | None) -> int:
+        cap = max(0, int(self.settings.max_retakes))
+        if requested is None:
+            return cap
+        try:
+            return max(0, min(int(requested), cap))
+        except (TypeError, ValueError):
+            return cap
+
+    def _should_stop_repeated_retake(self, reviews: list[CriticReview]) -> bool:
+        if not self.settings.retake_repeat_stop or len(reviews) < 2:
+            return False
+        prev, current = reviews[-2], reviews[-1]
+        improved = (current.overall_score or 0) - (prev.overall_score or 0) >= 1.0
+        if improved:
+            return False
+        return _complaints_repeat(prev, current)
+
+    def _keep_best_or_fail(
+        self,
+        *,
+        state: ProjectState,
+        record: ShotRecord,
+        take_dir: Path,
+        root: Path,
+        shot_key: str,
+        take: int,
+        log: LogFn | None,
+        review: CriticReview,
+        reason: str,
+    ) -> Path | None:
+        shot = record.plan
+        best = max(record.takes, key=lambda t: t.get("score") or 0, default=None)
+        if best and (best.get("score") or 0) >= self.settings.critic_pass_threshold - 1.0:
+            final = root / "shots" / f"{shot.id}_{_safe(shot.name)}_best.mp4"
+            shutil.copy2(best["video"], final)
+            record.final_video = str(final)
+            record.final_frame = best.get("frame")
+            best_vid = Path(best["video"]) if best.get("video") else None
+            record.last_frame = (
+                self._capture_last_frame(best_vid, take_dir / f"{shot.id}_last.jpg")
+                if best_vid and best_vid.exists()
+                else None
+            )
+            record.status = ShotStatus.passed
+            accepted_frame = (
+                Path(record.last_frame)
+                if record.last_frame and Path(record.last_frame).exists()
+                else (Path(best["frame"]) if best.get("frame") else None)
+            )
+            self._log(
+                state,
+                f"{shot.id} kept best take (score={best.get('score')}) — {reason}",
+                log,
+            )
+            self._finish_shot_timing(
+                state,
+                record,
+                shot_key,
+                detail=f"best-of after {take} takes",
+            )
+            return accepted_frame
+        record.status = ShotStatus.failed
+        record.error = review.retake_instructions or review.summary or reason
+        self._log(state, f"{shot.id} FAILED after {take} take(s) — {reason}", log)
+        self._finish_shot_timing(
+            state,
+            record,
+            shot_key,
+            status="error",
+            detail=f"failed after {take} take(s)",
+        )
+        return None
+
     def _produce_shot(
         self,
         state: ProjectState,
@@ -1080,6 +1221,7 @@ class ProductionPipeline:
         )
         state.status = "running"
 
+        video_reviews: list[CriticReview] = []
         for take in range(1, max_retakes + 2):  # initial + retakes
             if self.control:
                 self.control.check()
@@ -1192,11 +1334,16 @@ class ProductionPipeline:
                 render_prompt = _prompt(r2v=False, keyframe_mode=keyframe_mode)
 
             vid_note = f", video_ref={video_ref.name}" if video_ref else ""
+            last_note = ""
+            if last_frame and last_frame.exists():
+                last_res = last_frame.resolve()
+                if any(p.exists() and p.resolve() == last_res for p in ref_paths):
+                    last_note = f", continuity={last_frame.name}"
             kf_note = f", {keyframe_mode}" if gen_mode == "t2v" and keyframe_mode else ""
             self._log(
                 state,
                 f"{shot.id} take {take}: H3 {gen_mode.upper()} "
-                f"(seed={seed}, refs={len(ref_paths)} [{ref_labels}]{vid_note}{kf_note})…",
+                f"(seed={seed}, refs={len(ref_paths)} [{ref_labels}]{vid_note}{last_note}{kf_note})…",
                 log,
             )
 
@@ -1343,6 +1490,7 @@ class ProductionPipeline:
                 "ref_count": len(ref_paths),
             }
             record.takes.append(take_info)
+            video_reviews.append(review)
 
             if review.verdict == CriticVerdict.pass_:
                 final = root / "shots" / f"{shot.id}_{_safe(shot.name)}.mp4"
@@ -1373,50 +1521,31 @@ class ProductionPipeline:
                 )
                 return accepted_frame
 
-            if take > max_retakes or (review.verdict == CriticVerdict.reject and take > max_retakes):
-                best = max(record.takes, key=lambda t: t.get("score") or 0, default=None)
-                if best and (best.get("score") or 0) >= self.settings.critic_pass_threshold - 1.0:
-                    final = root / "shots" / f"{shot.id}_{_safe(shot.name)}_best.mp4"
-                    shutil.copy2(best["video"], final)
-                    record.final_video = str(final)
-                    record.final_frame = best.get("frame")
-                    best_vid = Path(best["video"]) if best.get("video") else None
-                    record.last_frame = (
-                        self._capture_last_frame(
-                            best_vid, take_dir / f"{shot.id}_last.jpg"
-                        )
-                        if best_vid and best_vid.exists()
-                        else None
-                    )
-                    record.status = ShotStatus.passed
-                    accepted_frame = (
-                        Path(record.last_frame)
-                        if record.last_frame and Path(record.last_frame).exists()
-                        else (Path(best["frame"]) if best.get("frame") else None)
-                    )
+            exhausted = take > max_retakes
+            repeated = (not exhausted) and self._should_stop_repeated_retake(video_reviews)
+            if exhausted or repeated:
+                reason = (
+                    "critic repeated the same temporal issue"
+                    if repeated
+                    else "retake budget exhausted"
+                )
+                if repeated:
                     self._log(
                         state,
-                        f"{shot.id} kept best take (score={best.get('score')}) after retakes",
+                        f"{shot.id} skipping further retakes — {reason}",
                         log,
                     )
-                    self._finish_shot_timing(
-                        state,
-                        record,
-                        shot_key,
-                        detail=f"best-of after {take} takes",
-                    )
-                    return accepted_frame
-                record.status = ShotStatus.failed
-                record.error = review.retake_instructions or review.summary
-                self._log(state, f"{shot.id} FAILED after {take} take(s)", log)
-                self._finish_shot_timing(
-                    state,
-                    record,
-                    shot_key,
-                    status="error",
-                    detail=f"failed after {take} take(s)",
+                return self._keep_best_or_fail(
+                    state=state,
+                    record=record,
+                    take_dir=take_dir,
+                    root=root,
+                    shot_key=shot_key,
+                    take=take,
+                    log=log,
+                    review=review,
+                    reason=reason,
                 )
-                return accepted_frame
 
             critic_notes = review.retake_instructions or review.summary
             visual_override = review.revised_prompt or visual_override
@@ -1675,9 +1804,9 @@ class ProductionPipeline:
             return
         paths.append(last_frame)
         extra.append(
-            f"- Continuity / lighting from previous shot is <Picture {len(paths)}> "
-            "(match costume continuity of ON-SCREEN cast only; "
-            "do not reintroduce banned cast; new camera and action are OK)."
+            f"- Continuity still from the previous shot's LAST FRAME is <Picture {len(paths)}> "
+            "(match lighting, costume, and world of ON-SCREEN cast only; "
+            "this is a new beat and camera — do not copy the previous action)."
         )
 
     def _resolve_refs(
