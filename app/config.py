@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     h3_mode: str = Field(default="r2v", alias="H3_MODE")
     h3_ref_image_size: str = Field(default="match", alias="H3_REF_IMAGE_SIZE")  # match | max
     h3_use_prev_shot_ref: bool = Field(default=True, alias="H3_USE_PREV_SHOT_REF")
+    # Previous accepted MP4 as R2V <Video 1> (motion / camera language). Better than a still slot.
+    h3_use_prev_shot_video: bool = Field(default=True, alias="H3_USE_PREV_SHOT_VIDEO")
+    # T2V/I2V: previous last frame as first_frame; with a preclip still also set last_frame (FL2VA)
+    h3_use_prev_as_first_frame: bool = Field(default=True, alias="H3_USE_PREV_AS_FIRST_FRAME")
+    # Write overall_soundscape / non_diegetic_music into the H3 prompt (native stereo decode)
+    h3_prompt_native_audio: bool = Field(default=True, alias="H3_PROMPT_NATIVE_AUDIO")
     # auto | gemini | h3 | manual | none — how to create identity stills
     character_board_mode: str = Field(default="auto", alias="CHARACTER_BOARD_MODE")
     # Multi-view sheet: how many poses for lead vs supporting cast
@@ -125,9 +131,9 @@ class Settings(BaseSettings):
     local_llm_api_key: str = Field(default="ollama", alias="LOCAL_LLM_API_KEY")
     # Text planner (director). Keep a fast non-vision model here.
     local_llm_model: str = Field(default="llama3.2", alias="LOCAL_LLM_MODEL")
-    # Vision critic for frame stills. Required for cast QA when Gemini is down.
-    # Empty → auto-pick any installed vision model (llava, etc.).
-    local_llm_vision_model: str = Field(default="llava", alias="LOCAL_LLM_VISION_MODEL")
+    # Vision critic for frame stills when Gemini is down.
+    # Prefer Qwen2.5-VL over LLaVA (stronger identity / JSON critic). Empty → auto-pick.
+    local_llm_vision_model: str = Field(default="qwen2.5vl", alias="LOCAL_LLM_VISION_MODEL")
     local_llm_timeout_sec: int = Field(default=300, alias="LOCAL_LLM_TIMEOUT_SEC")
     local_llm_max_tokens: int = Field(default=2048, alias="LOCAL_LLM_MAX_TOKENS")
     # Downscale review frames before sending to local VLMs (speed + context).
@@ -159,7 +165,7 @@ class Settings(BaseSettings):
     auto_start_comfy: bool = Field(default=True, alias="AUTO_START_COMFY")
     auto_start_ollama: bool = Field(default=True, alias="AUTO_START_OLLAMA")
     comfyui_root: Path = Field(default=Path(r"E:/AI/ComfyUI"), alias="COMFYUI_ROOT")
-    comfyui_python: str = Field(default="", alias="COMFYUI_PYTHON")  # empty → <root>/.venv/Scripts/python.exe
+    comfyui_python: str = Field(default="", alias="COMFYUI_PYTHON")  # empty → <root>/.venv/Scripts/python.exe (Win) or bin/python (Linux)
     comfyui_extra_args: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["--lowvram"],
         alias="COMFYUI_EXTRA_ARGS",

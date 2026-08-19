@@ -28,8 +28,10 @@ Hard constraints for H3 clips:
   • character_presence lists APPEARS and ABSENT by name.
   • empty house/prop shots leave cast out of visual_prompt.
 - Define main CHARACTERS (id C01..) with precise look bible + board_prompt.
+- audio_notes: concrete diegetic SFX and room tone H3 will generate in stereo
+  (footsteps, fabric, weather, object impacts). Not narrator VO.
 - narration_line: one short sentence of third-person documentary-style narrator VO for that shot
-  (not character dialogue). Natural pacing for ~5s.
+  (not character dialogue). Natural pacing for ~5s. Mixed later; do not put VO inside visual_prompt.
 
 Return ONLY valid JSON matching the schema. No markdown fences."""
 
@@ -43,6 +45,7 @@ Hard constraints:
 - ref_character_ids must always be [] when characters is empty.
 - Each shot is one continuous take; no on-screen text/logos/charts with readable labels.
 - Visuals convey history through environment, scale, era detail, and action.
+- audio_notes: concrete diegetic SFX / room / crowd (not the narrator).
 - narration_line: calm documentary VO covering that beat (spoken English, ~5s worth of words).
 - Style unified hyper-real OR stylized documentary look from the style bible.
 - Hook early; clear cause→effect arc; historical tone (not parody unless prompt asks).
@@ -59,6 +62,7 @@ Hard constraints:
 - No on-screen text, charts with numbers, logos, watermarks, UI.
 - Prefer abstract but concrete metaphors (coins, factories, scales, digital ledgers as objects/places).
 - Shot structure typically: hook problem → simple definition → mechanism → example → takeaway.
+- audio_notes: diegetic SFX for the metaphor world (not teacher VO).
 - narration_line: clear plain-language teacher VO for ~5s (no jargon dump; one idea per shot).
 - Keep style bible coherent so the metaphor world feels like one channel brand.
 
@@ -269,7 +273,7 @@ JSON schema:
     }}
   ],
   "color_grade": "string",
-  "audio_bed": "diegetic ambience notes",
+  "audio_bed": "diegetic ambience + optional light score (H3 generates this; narrator is separate)",
   "youtube_notes": "hook + retention",
   "narration_script": "optional full VO string (else built from shot lines)",
   "raw_director_notes": "anything else",
@@ -281,7 +285,7 @@ JSON schema:
       "duration_sec": {per_shot:.1f},
       "visual_prompt": "full render prompt body (scene action)",
       "camera": "lens / move",
-      "audio_notes": "string",
+      "audio_notes": "diegetic SFX/room tone for H3 stereo (not VO)",
       "character_presence": "who APPEARS / ABSENT",
       "ref_character_ids": ["C01"],
       "narration_line": "Spoken VO sentence for this shot"
@@ -316,7 +320,7 @@ JSON schema:
   "character_lock": "empty or brief prop identity note",
   "characters": [],
   "color_grade": "string",
-  "audio_bed": "ambience only; narrator is separate",
+  "audio_bed": "ambience/score H3 can generate; narrator is separate",
   "youtube_notes": "hook + clarity strategy",
   "narration_script": "optional full VO",
   "raw_director_notes": "anything else",
@@ -328,7 +332,7 @@ JSON schema:
       "duration_sec": {per_shot:.1f},
       "visual_prompt": "full render prompt for the shot (no on-screen text)",
       "camera": "lens / move",
-      "audio_notes": "diegetic only",
+      "audio_notes": "diegetic SFX/room tone for H3 stereo (not narrator VO)",
       "character_presence": "what appears (places/objects/masses) — not a cast list",
       "ref_character_ids": [],
       "narration_line": "Spoken VO sentence for this shot"
@@ -350,10 +354,31 @@ visual_prompt detailed for a diffusion video model. No readable screen text.
         picture_map: dict[str, int] | None = None,
         picture_meta: list[dict] | None = None,
         extra_picture_notes: list[str] | None = None,
+        video_notes: list[str] | None = None,
+        keyframe_mode: str | None = None,
+        clip_duration_sec: float | None = None,
     ) -> str:
         mode = normalize_narrative_mode(getattr(plan, "narrative_mode", None) or "character")
         on_ids, off_chars = _cast_split_for_shot(plan, shot, picture_meta, picture_map)
         parts: list[str] = []
+        dur = float(clip_duration_sec or shot.duration_sec or 5.0)
+
+        if keyframe_mode == "fl2va":
+            parts.append(
+                "How the reference pictures align with the target video — "
+                "Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; "
+                f"Picture 2 (from Shot 1) aligns with the {dur:.2f}-second mark of the target video."
+            )
+        elif keyframe_mode == "i2va":
+            parts.append(
+                "For the target video, at 0.00 seconds into the target video, "
+                "<Picture 1> (from [Shot 1]) is fully referenced."
+            )
+        elif keyframe_mode == "l2va":
+            parts.append(
+                "How the reference pictures align with the target video — "
+                f"<Picture 1> (from [Shot 1]) aligns with the {dur:.2f}-second mark of the target video."
+            )
 
         if mode == NarrativeMode.character.value or plan.characters:
             exclusivity = _exclusivity_block(plan, on_ids, off_chars)
@@ -368,9 +393,10 @@ visual_prompt detailed for a diffusion video model. No readable screen text.
                     name = m.get("name") or m.get("character_id") or "Subject"
                     pose = m.get("label") or m.get("pose_id") or "view"
                     look = (m.get("look") or "")[:160]
+                    job = m.get("job") or "identity / appearance / outfit"
                     id_lines.append(
-                        f"- <Picture {pic}>: {name} — {pose} reference. "
-                        f"Match identity exactly; do not copy this reference pose/camera. {look}"
+                        f"- <Picture {pic}> assigned job: {job} for {name} ({pose}). "
+                        f"Match identity exactly; do not copy this reference pose or camera. {look}"
                     )
             elif picture_map:
                 for cid, pic in sorted(picture_map.items(), key=lambda kv: kv[1]):
@@ -378,15 +404,22 @@ visual_prompt detailed for a diffusion video model. No readable screen text.
                     label = char.name if char else cid
                     look = (char.look if char else "")[:180]
                     id_lines.append(
-                        f"- {label} identity is <Picture {pic}> "
+                        f"- <Picture {pic}> assigned job: identity / appearance for {label} "
                         f"(match exactly; do not copy the reference pose). {look}"
                     )
             if id_lines:
                 parts.append(
-                    "REFERENCE IDENTITY LOCK (MiniMax H3 R2V):\n" + "\n".join(id_lines)
+                    "REFERENCE IDENTITY LOCK (MiniMax H3 R2V — <Picture N>):\n"
+                    + "\n".join(id_lines)
                 )
             if extra_picture_notes:
-                parts.append("ADDITIONAL REFS:\n" + "\n".join(extra_picture_notes))
+                parts.append("ADDITIONAL IMAGE REFS:\n" + "\n".join(extra_picture_notes))
+
+        if r2v and video_notes:
+            parts.append(
+                "REFERENCE VIDEO LOCK (MiniMax H3 R2V — <Video k> / <Audio j>):\n"
+                + "\n".join(video_notes)
+            )
 
         if mode == NarrativeMode.character.value or on_ids:
             lock_lines = _on_screen_look_lock(plan, on_ids)
@@ -402,25 +435,70 @@ visual_prompt detailed for a diffusion video model. No readable screen text.
             NarrativeMode.character.value: "Narrative fiction continuous take.",
         }.get(mode, "")
 
+        cam = (shot.camera or "").strip()
+        style_head = (plan.style_bible or "").strip()
+        action = (shot.visual_prompt or "").strip()
+        presence = (shot.character_presence or "").strip()
+        timeline = (
+            f"integrated_multimodal_description: [Shot 1] {style_head} "
+            f"{mode_note} "
+            + (f"Camera: {cam}. " if cam else "")
+            + (f"{presence}. " if presence else "")
+            + action
+        )
         parts.extend(
             [
-                plan.style_bible.strip(),
                 lock_lines,
                 f"COLOR GRADE: {plan.color_grade}".strip() if plan.color_grade else "",
-                f"AUDIO: {plan.audio_bed}. Shot audio: {shot.audio_notes}".strip(),
-                mode_note,
                 f"SHOT {shot.id} — {shot.name}. Story beat: {shot.beat}.",
-                f"PRESENCE: {shot.character_presence}" if shot.character_presence else "",
-                f"CAMERA: {shot.camera}" if shot.camera else "",
-                shot.visual_prompt.strip(),
+                timeline,
                 "Single continuous cinematic shot. No on-screen text, logos, subtitles, watermarks.",
             ]
         )
+        if self.settings.h3_prompt_native_audio:
+            parts.extend(_h3_audio_block(plan, shot, enable_voice=self.settings.enable_voice))
+        elif plan.audio_bed or shot.audio_notes:
+            parts.append(f"AUDIO: {plan.audio_bed}. Shot audio: {shot.audio_notes}".strip())
         if critic_notes:
             parts.append(
                 "DIRECTOR RETAKE NOTES (mandatory fixes from previous take):\n" + critic_notes.strip()
             )
         return "\n\n".join(p for p in parts if p)
+
+
+def _h3_audio_block(plan: ProductionPlan, shot: ShotPlan, *, enable_voice: bool) -> list[str]:
+    ambience = " ".join(
+        x.strip() for x in (plan.audio_bed, shot.audio_notes) if (x or "").strip()
+    ).strip()
+    if not ambience:
+        ambience = (
+            "Natural diegetic room tone matching the scene, with physical action sounds "
+            "timed to visible motion."
+        )
+    lines = [
+        f"overall_soundscape: {ambience} Synchronize footsteps, fabric, weather, and object "
+        "impacts to on-screen action. Stereo cinematic mix."
+    ]
+    bed_l = (plan.audio_bed or "").lower()
+    if any(k in bed_l for k in ("score", "music", "orchestra", "piano", "strings", "underscore")):
+        lines.append(f"non_diegetic_music: {plan.audio_bed}")
+    else:
+        lines.append(
+            "non_diegetic_music: Sparse cinematic underscore at low volume, or N/A if the "
+            "scene is driven by diegetic sound only."
+        )
+    if enable_voice:
+        lines.append(
+            "H3 AUDIO RULE: No spoken narration or character dialogue in this clip. "
+            "Keep mouths closed or natural non-speech motion. A separate narrator is mixed later."
+        )
+    elif (shot.narration_line or "").strip():
+        vo = shot.narration_line.strip().replace("<", "").replace(">", "")
+        lines.append(
+            "A calm off-screen narrator (S1) says in an off-screen voiceover: "
+            f"<d>[English] {vo}</d> while on-screen lips remain completely closed."
+        )
+    return lines
 
 
 def _cast_split_for_shot(

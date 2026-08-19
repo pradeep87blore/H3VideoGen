@@ -19,8 +19,9 @@ _VISION_NAME_HINTS = (
     "vision",
     "minicpm-v",
     "minicpm_v",
-    "qwen2-vl",
+    "qwen2.5vl",
     "qwen2.5-vl",
+    "qwen2-vl",
     "qwen-vl",
     "moondream",
     "llama3.2-vision",
@@ -354,13 +355,13 @@ class LocalOpenAIBackend:
                     except Exception as alt_exc:
                         raise RuntimeError(
                             f"Local vision failed on {model_name} and {alt}: {alt_exc}. "
-                            "Pull a vision model: `ollama pull llava` and set "
-                            "LOCAL_LLM_VISION_MODEL=llava"
+                            "Pull a vision model: `ollama pull qwen2.5vl` and set "
+                            "LOCAL_LLM_VISION_MODEL=qwen2.5vl"
                         ) from alt_exc
                 raise RuntimeError(
                     f"Local model '{model_name}' cannot accept images. "
-                    "Pull a vision model (`ollama pull llava`) and set "
-                    "LOCAL_LLM_VISION_MODEL=llava for critic frame QA."
+                    "Pull a vision model (`ollama pull qwen2.5vl`) and set "
+                    "LOCAL_LLM_VISION_MODEL=qwen2.5vl for critic frame QA."
                 ) from openai_exc
             if last_native is not None:
                 raise RuntimeError(

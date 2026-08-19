@@ -88,7 +88,7 @@ def director_plan_json(
                 "duration_sec": round(per_shot, 1),
                 "visual_prompt": vis,
                 "camera": camera,
-                "audio_notes": "Diegetic ambience matching scene",
+                "audio_notes": "Diegetic room tone, cloth rustle, and footsteps matching the action",
                 "character_presence": presence,
                 "ref_character_ids": refs,
                 "narration_line": narr[:220],
@@ -259,7 +259,7 @@ def critic_review_json(
         issues.append(
             "Offline critic cannot verify cast exclusivity for banned: "
             + ", ".join(bans[:8])
-            + " — will not fake-PASS (use LOCAL_LLM_VISION_MODEL=llava)"
+            + " — will not fake-PASS (use LOCAL_LLM_VISION_MODEL=qwen2.5vl)"
         )
     else:
         character = 7.4
@@ -284,7 +284,7 @@ def critic_review_json(
                 + (", ".join(allows) if allows else "no living cast")
                 + ". Completely remove banned: "
                 + ", ".join(bans)
-                + ". Prefer enabling LOCAL_LLM_VISION_MODEL=llava for real QA."
+                + ". Prefer enabling LOCAL_LLM_VISION_MODEL=qwen2.5vl for real QA."
             )
         summary = "Offline heuristic critic found quality concerns: " + "; ".join(issues[:3])
     else:

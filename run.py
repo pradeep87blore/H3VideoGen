@@ -105,7 +105,7 @@ def cmd_serve() -> None:
         except Exception:
             pass
 
-    # Windows: SIGINT (Ctrl+C). SIGTERM only partially supported — still register.
+    # SIGINT (Ctrl+C) on all platforms. SIGTERM on Unix; partial on Windows.
     for sig in (signal.SIGINT, getattr(signal, "SIGTERM", None)):
         if sig is None:
             continue

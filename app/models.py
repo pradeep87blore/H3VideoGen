@@ -101,6 +101,8 @@ class CriticReview(BaseModel):
     retake_instructions: str = ""
     revised_prompt: str = ""
     summary: str = ""
+    provider: str = ""
+    usage: Optional[dict[str, Any]] = None
 
 
 class ShotRecord(BaseModel):
@@ -108,7 +110,8 @@ class ShotRecord(BaseModel):
     status: ShotStatus = ShotStatus.pending
     takes: list[dict[str, Any]] = Field(default_factory=list)
     final_video: Optional[str] = None
-    final_frame: Optional[str] = None
+    final_frame: Optional[str] = None  # mid-clip identity still (critic / sheet enrich)
+    last_frame: Optional[str] = None  # true end frame for next-shot I2VA / FL2VA
     reviews: list[CriticReview] = Field(default_factory=list)
     error: Optional[str] = None
     started_at: Optional[str] = None

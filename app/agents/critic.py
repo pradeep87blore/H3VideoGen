@@ -132,6 +132,15 @@ class CriticAgent:
         self.log = log
         self.llm = LLMRouter(settings, log=log)
         self.last_provider = ""
+        self.last_usage: dict[str, Any] | None = None
+
+    def _stamp_review(self, review: CriticReview, result: Any) -> CriticReview:
+        self.last_provider = getattr(result, "provider", "") or ""
+        self.last_usage = getattr(result, "usage", None)
+        review.provider = self.last_provider
+        if self.last_usage:
+            review.usage = dict(self.last_usage)
+        return review
 
     def review(
         self,
@@ -246,7 +255,6 @@ JSON schema:
                 "banned_names": ban_names,
             },
         )
-        self.last_provider = result.provider
         data = result.data
 
         v = str(data.get("verdict", "RETAKE")).upper()
@@ -259,7 +267,7 @@ JSON schema:
         data["shot_id"] = shot.id
         data["take"] = take
 
-        review = CriticReview.model_validate(data)
+        review = self._stamp_review(CriticReview.model_validate(data), result)
 
         # Enforce harsh threshold locally (preclip can use a slightly lower bar)
         threshold = (
@@ -380,7 +388,6 @@ JSON schema:
                 ],
             },
         )
-        self.last_provider = result.provider
         data = result.data
         v = str(data.get("verdict", "RETAKE")).upper()
         if v == "PASS":
@@ -393,7 +400,7 @@ JSON schema:
         data["take"] = take
         data["youtube_ready"] = False
 
-        review = CriticReview.model_validate(data)
+        review = self._stamp_review(CriticReview.model_validate(data), result)
         threshold = float(self.settings.character_sheet_critic_threshold)
         if review.overall_score < threshold and review.verdict == CriticVerdict.pass_:
             review.verdict = CriticVerdict.retake

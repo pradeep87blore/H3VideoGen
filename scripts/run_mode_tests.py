@@ -15,7 +15,10 @@ JOBS = [
     ROOT / "jobs" / "emu_war_doc_25s.json",
     ROOT / "jobs" / "bitcoin_explainer_25s.json",
 ]
-PY = ROOT / ".venv" / "Scripts" / "python.exe"
+if sys.platform == "win32":
+    PY = ROOT / ".venv" / "Scripts" / "python.exe"
+else:
+    PY = ROOT / ".venv" / "bin" / "python"
 POLL = 45
 
 

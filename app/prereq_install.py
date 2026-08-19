@@ -532,10 +532,11 @@ def ensure_h3_models(settings: Settings, log: LogFn | None = None) -> dict[str, 
 
 def find_ffmpeg_candidates(settings: Settings) -> list[Path]:
     paths: list[Path] = []
+    _exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
     for p in (
         Path(settings.ffmpeg_path) if settings.ffmpeg_path else None,
-        Path(settings.ai_root) / "FFmpeg" / "bin" / "ffmpeg.exe",
-        Path(settings.ai_root) / "FFmpeg" / "ffmpeg.exe",
+        Path(settings.ai_root) / "FFmpeg" / "bin" / _exe,
+        Path(settings.ai_root) / "FFmpeg" / _exe,
     ):
         if p:
             paths.append(p)
@@ -545,7 +546,7 @@ def find_ffmpeg_candidates(settings: Settings) -> list[Path]:
     # nested gyan layout
     ff_root = Path(settings.ai_root) / "FFmpeg"
     if ff_root.is_dir():
-        for found in ff_root.rglob("ffmpeg.exe"):
+        for found in ff_root.rglob(_exe):
             paths.append(found)
             break
     return paths
@@ -579,8 +580,9 @@ def ensure_ffmpeg(settings: Settings, log: LogFn | None = None) -> dict[str, Any
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(dest_root)
         # find extracted binary
-        for found in dest_root.rglob("ffmpeg.exe"):
-            probe = found.parent / "ffprobe.exe"
+        _exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+        for found in dest_root.rglob(_exe):
+            probe = found.parent / ("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
             _emit(log, f"FFmpeg installed at {found}")
             return {
                 "ok": True,
@@ -588,7 +590,7 @@ def ensure_ffmpeg(settings: Settings, log: LogFn | None = None) -> dict[str, Any
                 "path": str(found),
                 "ffprobe": str(probe) if probe.is_file() else None,
             }
-        return {"ok": False, "status": "error", "error": "ffmpeg.exe not in zip"}
+        return {"ok": False, "status": "error", "error": f"{_exe} not in archive"}
     except Exception as exc:
         _emit(log, f"FFmpeg install failed: {exc}")
         return {"ok": False, "status": "error", "error": str(exc)[:400]}

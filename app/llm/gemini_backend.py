@@ -73,12 +73,109 @@ def model_list(primary: str, settings: Settings) -> list[str]:
     return out
 
 
+# Paid-tier USD per 1M tokens (input, output). Used only for log estimates.
+_GEMINI_RATES_USD: dict[str, tuple[float, float]] = {
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.5-flash": (1.50, 9.00),
+    "gemini-3.6-flash": (1.50, 9.00),
+    "gemini-3.1-flash-lite": (0.30, 2.50),
+    "gemini-3-flash": (1.50, 9.00),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "gemini-flash": (0.30, 2.50),
+}
+
+
+def rates_for_model(model: str) -> tuple[float, float] | None:
+    name = (model or "").lower()
+    for key, rates in sorted(_GEMINI_RATES_USD.items(), key=lambda kv: len(kv[0]), reverse=True):
+        if name == key or name.startswith(key):
+            return rates
+    return None
+
+
+def extract_usage(response: Any, *, model: str, image_count: int = 0) -> dict[str, Any]:
+    """Normalize Gemini usage_metadata into a JSON-friendly dict."""
+    meta = getattr(response, "usage_metadata", None)
+    if meta is None and isinstance(response, dict):
+        meta = response.get("usage_metadata")
+    prompt = _usage_int(meta, "prompt_token_count")
+    output = _usage_int(meta, "candidates_token_count")
+    thinking = _usage_int(meta, "thoughts_token_count")
+    cached = _usage_int(meta, "cached_content_token_count")
+    total = _usage_int(meta, "total_token_count") or (prompt + output)
+    in_rate, out_rate = rates_for_model(model) or (None, None)
+    est = None
+    if in_rate is not None and out_rate is not None:
+        est = round((prompt * in_rate + output * out_rate) / 1_000_000.0, 6)
+    return {
+        "model": model,
+        "prompt_tokens": prompt,
+        "output_tokens": output,
+        "thinking_tokens": thinking,
+        "cached_tokens": cached,
+        "total_tokens": total,
+        "images": image_count,
+        "est_usd": est,
+    }
+
+
+def format_usage_line(usage: dict[str, Any] | None) -> str:
+    if not usage:
+        return ""
+    model = usage.get("model") or "gemini"
+    pin = int(usage.get("prompt_tokens") or 0)
+    pout = int(usage.get("output_tokens") or 0)
+    think = int(usage.get("thinking_tokens") or 0)
+    total = int(usage.get("total_tokens") or (pin + pout))
+    imgs = int(usage.get("images") or 0)
+    extra = f", {think} think" if think else ""
+    img = f", {imgs} image{'s' if imgs != 1 else ''}" if imgs else ""
+    usd = usage.get("est_usd")
+    money = f" ≈ ${usd:.4f}" if isinstance(usd, (int, float)) else ""
+    return (
+        f"Gemini usage ({model}): {pin} in + {pout} out{extra}{img} "
+        f"= {total} tokens{money}"
+    )
+
+
+def _usage_int(meta: Any, field: str) -> int:
+    if meta is None:
+        return 0
+    val = getattr(meta, field, None)
+    if val is None and isinstance(meta, dict):
+        val = meta.get(field)
+    try:
+        return int(val or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 class GeminiBackend:
     name = "gemini"
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self._client = None
+        self.last_usage: dict[str, Any] | None = None
+        self.session_usage: dict[str, Any] = {
+            "calls": 0,
+            "prompt_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "est_usd": 0.0,
+        }
+
+    def _record_usage(self, usage: dict[str, Any]) -> None:
+        self.last_usage = usage
+        s = self.session_usage
+        s["calls"] = int(s.get("calls") or 0) + 1
+        s["prompt_tokens"] = int(s.get("prompt_tokens") or 0) + int(usage.get("prompt_tokens") or 0)
+        s["output_tokens"] = int(s.get("output_tokens") or 0) + int(usage.get("output_tokens") or 0)
+        s["total_tokens"] = int(s.get("total_tokens") or 0) + int(usage.get("total_tokens") or 0)
+        if usage.get("est_usd") is not None:
+            s["est_usd"] = round(float(s.get("est_usd") or 0) + float(usage["est_usd"]), 6)
 
     def available(self) -> bool:
         return bool(self.settings.gemini_api_key)
@@ -105,6 +202,7 @@ class GeminiBackend:
 
         client = self._client_or_raise()
         contents: Any
+        image_count = 0
         if images:
             parts: list[Any] = [user]
             for fp in images:
@@ -112,6 +210,7 @@ class GeminiBackend:
                     continue
                 mime = "image/jpeg" if fp.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
                 parts.append(types.Part.from_bytes(data=fp.read_bytes(), mime_type=mime))
+                image_count += 1
             contents = parts
         else:
             contents = user
@@ -134,6 +233,8 @@ class GeminiBackend:
                     text = (response.text or "").strip()
                     if not text:
                         raise RuntimeError("empty Gemini response")
+                    usage = extract_usage(response, model=model, image_count=image_count)
+                    self._record_usage(usage)
                     return text, f"gemini:{model}"
                 except Exception as exc:  # noqa: BLE001 — cascade models
                     errors.append(f"{model}: {exc}")

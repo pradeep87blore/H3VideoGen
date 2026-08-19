@@ -630,16 +630,17 @@ def ffmpeg_available(settings: Settings) -> bool:
     if shutil.which(path) is not None:
         return True
     # Shared AI_ROOT portable install (bootstrap places it here)
+    _exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
     for cand in (
-        Path(settings.ai_root) / "FFmpeg" / "bin" / "ffmpeg.exe",
-        Path(settings.ai_root) / "FFmpeg" / "ffmpeg.exe",
+        Path(settings.ai_root) / "FFmpeg" / "bin" / _exe,
+        Path(settings.ai_root) / "FFmpeg" / _exe,
     ):
         if cand.is_file():
             return True
     try:
         ff_root = Path(settings.ai_root) / "FFmpeg"
         if ff_root.is_dir():
-            for found in ff_root.rglob("ffmpeg.exe"):
+            for found in ff_root.rglob(_exe):
                 if found.is_file():
                     return True
     except Exception:
@@ -655,16 +656,17 @@ def resolve_ffmpeg(settings: Settings) -> str:
     w = shutil.which(path)
     if w:
         return w
+    _exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
     for cand in (
-        Path(settings.ai_root) / "FFmpeg" / "bin" / "ffmpeg.exe",
-        Path(settings.ai_root) / "FFmpeg" / "ffmpeg.exe",
+        Path(settings.ai_root) / "FFmpeg" / "bin" / _exe,
+        Path(settings.ai_root) / "FFmpeg" / _exe,
     ):
         if cand.is_file():
             return str(cand)
     try:
         ff_root = Path(settings.ai_root) / "FFmpeg"
         if ff_root.is_dir():
-            for found in ff_root.rglob("ffmpeg.exe"):
+            for found in ff_root.rglob(_exe):
                 if found.is_file():
                     return str(found)
     except Exception:
@@ -779,7 +781,7 @@ def essentials_report(settings: Settings) -> dict[str, Any]:
                 vision_detail = (
                     f"text={settings.local_llm_model} vision={vname or 'unset'}"
                     if vision_ok
-                    else f"text={settings.local_llm_model}; no vision model (pull llava)"
+                    else f"text={settings.local_llm_model}; no vision model (pull qwen2.5vl)"
                 )
             except Exception as exc:
                 vision_ok = False
@@ -803,7 +805,7 @@ def essentials_report(settings: Settings) -> dict[str, Any]:
         if ollama_ok and not vision_ok:
             warnings.append(
                 "Ollama has no vision model — critic frame QA needs "
-                f"`ollama pull {settings.local_llm_vision_model or 'llava'}` "
+                f"`ollama pull {settings.local_llm_vision_model or 'qwen2.5vl'}` "
                 "and LOCAL_LLM_VISION_MODEL for cast exclusivity when Gemini is down."
             )
         if not ollama_ok and not gemini_ok:

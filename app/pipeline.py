@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import traceback
 import uuid
@@ -16,7 +17,7 @@ from .character_board import CharacterBoardBuilder, ensure_character_designs
 from .comfy_h3 import ComfyError, ComfyH3Client
 from .config import Settings, get_settings
 from .job_control import CancelledError, JobControl
-from .media import assemble_master, extract_frames, probe, mux_narration
+from .media import assemble_master, extract_frames, extract_last_frame, probe, mux_narration
 from .models import (
     GenerateRequest,
     NarrativeMode,
@@ -290,7 +291,7 @@ class ProductionPipeline:
         log: LogFn | None = None,
         on_start: Callable[[str], None] | None = None,
     ) -> ProjectState:
-        project_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+        project_id = _new_project_id(req.prompt)
         started = _iso_now()
         state = ProjectState(
             project_id=project_id,
@@ -787,6 +788,7 @@ class ProductionPipeline:
         plan = state.plan
         assert plan is not None
         last_frame: Path | None = None
+        prev_video: Path | None = None
         last_ref_ids: list[str] | None = None
 
         remaining = [
@@ -824,8 +826,12 @@ class ProductionPipeline:
                 and record.final_video
                 and Path(record.final_video).exists()
             ):
-                if record.final_frame and Path(record.final_frame).exists():
+                if record.last_frame and Path(record.last_frame).exists():
+                    last_frame = Path(record.last_frame)
+                elif record.final_frame and Path(record.final_frame).exists():
                     last_frame = Path(record.final_frame)
+                if record.final_video and Path(record.final_video).exists():
+                    prev_video = Path(record.final_video)
                 last_ref_ids = list(record.plan.ref_character_ids or [])
                 self._log(state, f"{record.plan.id} already passed — skip", log)
                 continue
@@ -843,10 +849,15 @@ class ProductionPipeline:
                 log,
                 board=board,
                 last_frame=last_frame,
+                prev_video=prev_video,
                 prev_ref_ids=last_ref_ids,
                 mode=mode,
             ) or last_frame
             last_ref_ids = list(record.plan.ref_character_ids or [])
+            if record.final_video and Path(record.final_video).exists():
+                prev_video = Path(record.final_video)
+            if record.last_frame and Path(record.last_frame).exists():
+                last_frame = Path(record.last_frame)
 
             # Exhausting retakes (or hard gen failure) ends the whole job —
             # later shots cannot recover continuity / product quality.
@@ -1041,6 +1052,7 @@ class ProductionPipeline:
         *,
         board: CharacterBoardBuilder | None = None,
         last_frame: Path | None = None,
+        prev_video: Path | None = None,
         prev_ref_ids: list[str] | None = None,
         mode: str = "r2v",
     ) -> Path | None:
@@ -1076,18 +1088,35 @@ class ProductionPipeline:
             seed = seed_base + idx * 17 + take * 3
 
             shot_for_prompt = shot.model_copy(update={"visual_prompt": visual_override})
+            video_ref = self._usable_prev_video(prev_video, shot, prev_ref_ids)
             gen_mode, ref_paths, picture_meta, picture_map, extra_notes = self._resolve_refs(
-                plan, shot, mode, board, last_frame, prev_ref_ids=prev_ref_ids
-            )
-            render_prompt = self.director.build_render_prompt(
                 plan,
-                shot_for_prompt,
-                critic_notes,
-                r2v=(gen_mode == "r2v"),
-                picture_map=picture_map,
-                picture_meta=picture_meta,
-                extra_picture_notes=extra_notes,
+                shot,
+                mode,
+                board,
+                last_frame,
+                prev_ref_ids=prev_ref_ids,
+                attach_prev_still=(video_ref is None),
             )
+            if video_ref and gen_mode == "t2v" and (mode or "r2v").lower() != "t2v":
+                gen_mode = "r2v"
+            video_notes = self._video_ref_notes(video_ref) if video_ref else []
+
+            def _prompt(*, r2v: bool, keyframe_mode: str | None = None) -> str:
+                return self.director.build_render_prompt(
+                    plan,
+                    shot_for_prompt,
+                    critic_notes,
+                    r2v=r2v,
+                    picture_map=picture_map,
+                    picture_meta=picture_meta,
+                    extra_picture_notes=extra_notes,
+                    video_notes=video_notes if r2v else None,
+                    keyframe_mode=keyframe_mode,
+                    clip_duration_sec=shot.duration_sec,
+                )
+
+            render_prompt = _prompt(r2v=(gen_mode == "r2v"))
             # Keep exclusivity in retake notes when critic already complained about cast
             if take == 1 and (shot.ref_character_ids is not None):
                 off = [
@@ -1132,15 +1161,7 @@ class ProductionPipeline:
                     log=log,
                 )
                 shot_for_prompt = shot.model_copy(update={"visual_prompt": visual_override})
-                render_prompt = self.director.build_render_prompt(
-                    plan,
-                    shot_for_prompt,
-                    critic_notes,
-                    r2v=(gen_mode == "r2v"),
-                    picture_map=picture_map,
-                    picture_meta=picture_meta,
-                    extra_picture_notes=extra_notes,
-                )
+                render_prompt = _prompt(r2v=(gen_mode == "r2v"))
                 if not still_ok and self.settings.preclip_require_pass:
                     # Skip expensive H3; treat as video retake note carry-forward
                     self._log(
@@ -1163,23 +1184,23 @@ class ProductionPipeline:
                     record.status = ShotStatus.retake
                     continue
 
+            t2v_first, t2v_last, keyframe_mode = self._t2v_keyframe_pair(
+                prev_last_frame=last_frame,
+                preclip_still=first_frame,
+            )
+            if gen_mode == "t2v":
+                render_prompt = _prompt(r2v=False, keyframe_mode=keyframe_mode)
+
+            vid_note = f", video_ref={video_ref.name}" if video_ref else ""
+            kf_note = f", {keyframe_mode}" if gen_mode == "t2v" and keyframe_mode else ""
             self._log(
                 state,
                 f"{shot.id} take {take}: H3 {gen_mode.upper()} "
-                f"(seed={seed}, refs={len(ref_paths)} [{ref_labels}])…",
+                f"(seed={seed}, refs={len(ref_paths)} [{ref_labels}]{vid_note}{kf_note})…",
                 log,
             )
 
             prefix = f"video/H3VideoGen/{state.project_id}/{shot.id}_t{take}"
-            use_ff = (
-                first_frame
-                if (
-                    first_frame
-                    and self.settings.preclip_use_as_first_frame
-                    and gen_mode == "t2v"
-                )
-                else None
-            )
             try:
                 src, prompt_id, used_mode = self.comfy.generate(
                     render_prompt,
@@ -1188,7 +1209,9 @@ class ProductionPipeline:
                     filename_prefix=prefix,
                     mode=gen_mode,
                     ref_image_paths=ref_paths,
-                    first_frame_path=use_ff,
+                    ref_video_paths=[video_ref] if (gen_mode == "r2v" and video_ref) else None,
+                    first_frame_path=t2v_first,
+                    last_frame_path=t2v_last,
                     project_tag=state.project_id,
                 )
             except CancelledError:
@@ -1204,24 +1227,15 @@ class ProductionPipeline:
                     try:
                         if self.control:
                             self.control.check()
-                        t2v_prompt = self.director.build_render_prompt(
-                            plan, shot_for_prompt, critic_notes, r2v=False
-                        )
-                        t2v_ff = (
-                            first_frame
-                            if (
-                                first_frame
-                                and self.settings.preclip_use_as_first_frame
-                            )
-                            else None
-                        )
+                        t2v_prompt = _prompt(r2v=False, keyframe_mode=keyframe_mode)
                         src, prompt_id, used_mode = self.comfy.generate(
                             t2v_prompt,
                             length=shot.length_frames,
                             seed=seed,
                             filename_prefix=prefix + "_t2v",
                             mode="t2v",
-                            first_frame_path=t2v_ff,
+                            first_frame_path=t2v_first,
+                            last_frame_path=t2v_last,
                             project_tag=state.project_id,
                         )
                         render_prompt = t2v_prompt
@@ -1310,6 +1324,12 @@ class ProductionPipeline:
                 f"youtube_ready={review.youtube_ready} — {review.summary[:160]}",
                 log,
             )
+            if review.usage:
+                from .llm.gemini_backend import format_usage_line
+
+                line = format_usage_line(review.usage)
+                if line:
+                    self._log(state, f"{shot.id} {line}", log)
 
             take_info = {
                 "take": take,
@@ -1329,8 +1349,13 @@ class ProductionPipeline:
                 shutil.copy2(dest, final)
                 record.final_video = str(final)
                 record.final_frame = str(mid) if mid else None
+                record.last_frame = self._capture_last_frame(dest, take_dir / f"{shot.id}_last.jpg")
                 record.status = ShotStatus.passed
-                accepted_frame = Path(mid) if mid else None
+                accepted_frame = (
+                    Path(record.last_frame)
+                    if record.last_frame and Path(record.last_frame).exists()
+                    else (Path(mid) if mid else None)
+                )
                 if board and mid and mode in ("r2v", "auto"):
                     try:
                         board.enrich_from_accepted_frame(plan, Path(mid), shot)
@@ -1355,8 +1380,20 @@ class ProductionPipeline:
                     shutil.copy2(best["video"], final)
                     record.final_video = str(final)
                     record.final_frame = best.get("frame")
+                    best_vid = Path(best["video"]) if best.get("video") else None
+                    record.last_frame = (
+                        self._capture_last_frame(
+                            best_vid, take_dir / f"{shot.id}_last.jpg"
+                        )
+                        if best_vid and best_vid.exists()
+                        else None
+                    )
                     record.status = ShotStatus.passed
-                    accepted_frame = Path(best["frame"]) if best.get("frame") else None
+                    accepted_frame = (
+                        Path(record.last_frame)
+                        if record.last_frame and Path(record.last_frame).exists()
+                        else (Path(best["frame"]) if best.get("frame") else None)
+                    )
                     self._log(
                         state,
                         f"{shot.id} kept best take (score={best.get('score')}) after retakes",
@@ -1497,6 +1534,12 @@ class ProductionPipeline:
                 f"{pre_review.summary[:140]}",
                 log,
             )
+            if pre_review.usage:
+                from .llm.gemini_backend import format_usage_line
+
+                line = format_usage_line(pre_review.usage)
+                if line:
+                    self._log(state, f"{shot.id} preclip {line}", log)
             if (pre_review.overall_score or 0) >= best_score:
                 best_score = pre_review.overall_score or 0
                 best_still = still
@@ -1542,6 +1585,101 @@ class ProductionPipeline:
         )
         return True, notes, visual, None
 
+    def _usable_prev_video(
+        self,
+        prev_video: Path | None,
+        shot: ShotPlan,
+        prev_ref_ids: list[str] | None,
+    ) -> Path | None:
+        if not self.settings.h3_use_prev_shot_video:
+            return None
+        if not prev_video:
+            return None
+        p = Path(prev_video)
+        if not p.exists() or p.stat().st_size < 50_000:
+            return None
+        if prev_ref_ids is not None:
+            curr = set(shot.ref_character_ids or [])
+            prev = set(prev_ref_ids)
+            if prev and curr and not prev.issubset(curr):
+                return None
+        return p
+
+    @staticmethod
+    def _video_ref_notes(_video: Path) -> list[str]:
+        return [
+            "- <Video 1> is the previous accepted clip. Assigned job: motion energy, "
+            "camera language, lighting, and world continuity. This take is a NEW beat "
+            "(not a recut). Do not copy the previous action beat-for-beat.",
+            "- <Audio 1> (if present) is that clip's soundtrack — continue room/ambience "
+            "character; do not copy spoken lines.",
+        ]
+
+    def _t2v_keyframe_pair(
+        self,
+        *,
+        prev_last_frame: Path | None,
+        preclip_still: Path | None,
+    ) -> tuple[Path | None, Path | None, str | None]:
+        """Return (first_frame, last_frame, keyframe_mode) for MiniMaxH3ImageToVideo."""
+        prev = (
+            Path(prev_last_frame)
+            if (
+                self.settings.h3_use_prev_as_first_frame
+                and prev_last_frame
+                and Path(prev_last_frame).exists()
+            )
+            else None
+        )
+        still = (
+            Path(preclip_still)
+            if (
+                self.settings.preclip_use_as_first_frame
+                and preclip_still
+                and Path(preclip_still).exists()
+            )
+            else None
+        )
+        if prev and still and prev.resolve() != still.resolve():
+            return prev, still, "fl2va"
+        if prev:
+            return prev, None, "i2va"
+        if still:
+            return still, None, "i2va"
+        return None, None, None
+
+    def _capture_last_frame(self, video: Path | None, dest: Path) -> str | None:
+        if not video or not Path(video).exists():
+            return None
+        try:
+            out = extract_last_frame(self.settings, Path(video), dest)
+            return str(out) if out.exists() else None
+        except Exception:
+            return None
+
+    def _attach_prev_still(
+        self,
+        paths: list[Path],
+        extra: list[str],
+        last_frame: Path | None,
+        wanted_ids: list[str],
+        prev_ref_ids: list[str] | None,
+    ) -> None:
+        if not self.settings.h3_use_prev_shot_ref:
+            return
+        if not last_frame or not last_frame.exists() or len(paths) >= 9:
+            return
+        if prev_ref_ids is not None and (set(prev_ref_ids) - set(wanted_ids)):
+            return
+        if last_frame in paths:
+            return
+        paths.append(last_frame)
+        extra.append(
+            f"- Continuity / lighting from previous shot is <Picture {len(paths)}> "
+            "(match costume continuity of ON-SCREEN cast only; "
+            "do not reintroduce banned cast; new camera and action are OK)."
+        )
+
     def _resolve_refs(
         self,
         plan: ProductionPlan,
@@ -1550,6 +1688,7 @@ class ProductionPipeline:
         board: CharacterBoardBuilder | None,
         last_frame: Path | None,
         prev_ref_ids: list[str] | None = None,
+        attach_prev_still: bool = True,
     ) -> tuple[str, list[Path], list[dict], dict[str, int], list[str]]:
         """Return (mode, ref_paths, picture_meta, picture_map, extra_notes)."""
         if mode == "t2v":
@@ -1566,6 +1705,10 @@ class ProductionPipeline:
                 pic = m.get("picture")
                 if cid and pic and cid not in picture_map:
                     picture_map[cid] = int(pic)
+            if attach_prev_still:
+                self._attach_prev_still(
+                    paths, extra, last_frame, list(shot.ref_character_ids or []), prev_ref_ids
+                )
             if paths:
                 return "r2v", paths, meta, picture_map, extra
             return "t2v", [], [], {}, []
@@ -1598,22 +1741,8 @@ class ProductionPipeline:
                     "look": (char.look or "")[:160],
                 }
             )
-        use_prev = (
-            self.settings.h3_use_prev_shot_ref
-            and last_frame
-            and last_frame.exists()
-            and len(paths) < 9
-        )
-        if use_prev and prev_ref_ids is not None:
-            if set(prev_ref_ids) - set(wanted_ids):
-                use_prev = False
-        if use_prev:
-            paths.append(last_frame)  # type: ignore[arg-type]
-            extra.append(
-                f"- Continuity / lighting from previous shot is <Picture {len(paths)}> "
-                "(match costume continuity of ON-SCREEN cast only; "
-                "do not reintroduce banned cast; new camera and action are OK)."
-            )
+        if attach_prev_still:
+            self._attach_prev_still(paths, extra, last_frame, wanted_ids, prev_ref_ids)
         if paths:
             return "r2v", paths, meta, picture_map, extra
         return "t2v", [], [], {}, []
@@ -1627,6 +1756,27 @@ def _safe(name: str) -> str:
         elif ch in (" ", "—", "–"):
             keep.append("_")
     return "".join(keep)[:60] or "shot"
+
+
+def _prompt_slug(prompt: str, max_len: int = 36) -> str:
+    """Short filesystem-safe hint from the story prompt (for output folder names)."""
+    text = (prompt or "").strip().split("\n", 1)[0]
+    text = re.sub(r"\s+", " ", text)
+    if not text:
+        return "untitled"
+    slug = _safe(text.lower())
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    slug = slug.strip("_")
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("_")
+    return slug or "untitled"
+
+
+def _new_project_id(prompt: str) -> str:
+    """Timestamp + prompt slug + id suffix so outputs/ folders are easy to spot."""
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return f"{ts}_{_prompt_slug(prompt)}_{uuid.uuid4().hex[:8]}"
 
 
 def load_state(project_id: str, settings: Settings | None = None) -> ProjectState | None:

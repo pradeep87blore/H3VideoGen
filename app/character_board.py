@@ -461,6 +461,12 @@ class CharacterBoardBuilder:
                     f"→ {review.verdict.value} score={review.overall_score} — "
                     f"{(review.summary or '')[:120]}"
                 )
+                if review.usage:
+                    from .llm.gemini_backend import format_usage_line
+
+                    line = format_usage_line(review.usage)
+                    if line:
+                        self._emit(line)
 
                 if (review.overall_score or 0) >= best_score:
                     best_score = review.overall_score or 0
@@ -808,11 +814,12 @@ class CharacterBoardBuilder:
         self,
         plan: ProductionPlan,
         shot: ShotPlan,
-        last_frame: Path | None = None,
-        prev_ref_ids: list[str] | None = None,
+        last_frame: Path | None = None,  # unused; continuity is video / T2V keyframes
+        prev_ref_ids: list[str] | None = None,  # unused; exclusivity handled by pipeline
     ) -> tuple[list[Path], list[dict], list[str]]:
         """
-        Pick ≤9 reference images for this shot.
+        Pick ≤9 reference images for this shot (identity stills only).
+        Previous-clip continuity is attached by the pipeline as <Video 1> or T2V first_frame.
         Returns (paths, meta entries for prompt, extra notes).
         meta item: {picture, character_id, name, pose_id, label, look}
         """
@@ -825,17 +832,7 @@ class CharacterBoardBuilder:
             if self._primary_path(plan.characters[0]):
                 wanted_ids = [plan.characters[0].id]
 
-        use_prev = bool(
-            self.settings.h3_use_prev_shot_ref and last_frame and last_frame.exists()
-        )
-        if use_prev and prev_ref_ids is not None:
-            # Skip continuity frame if prior take included cast banned this take
-            curr = set(wanted_ids)
-            prev = set(prev_ref_ids)
-            if prev and not prev.issubset(curr):
-                use_prev = False
-        if use_prev:
-            budget = max(1, budget - 1)  # reserve one slot for continuity
+        # Previous-shot continuity is a video ref (or T2V first_frame), not an extra still.
 
         # Lead cast first
         ordered_chars: list[CharacterDesign] = []
@@ -938,15 +935,6 @@ class CharacterBoardBuilder:
             meta.append(entry)
 
         extra: list[str] = []
-        if use_prev and last_frame and last_frame.exists() and len(paths) < R2V_MAX_IMAGES:
-            paths.append(last_frame)
-            pic_n = len(paths)
-            extra.append(
-                f"- Continuity / lighting from previous shot is <Picture {pic_n}> "
-                "(match costume continuity of ON-SCREEN cast only; "
-                "do not reintroduce anyone not allowed in CAST EXCLUSIVITY; "
-                "new camera and action are OK)."
-            )
         return paths, meta, extra
 
     def _write_manifest(self, plan: ProductionPlan, chars: list[CharacterDesign]) -> None:

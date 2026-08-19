@@ -200,9 +200,37 @@ class ComfyH3Client:
 
     def upload_image(self, path: Path, *, subfolder: str = "H3VideoGen") -> str:
         """Upload local image; returns filename usable by LoadImage."""
+        suffix = Path(path).suffix.lower()
+        mime = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+        }.get(suffix, "image/jpeg")
+        return self._upload_input(path, subfolder=subfolder, mime=mime, kind="image")
+
+    def upload_video(self, path: Path, *, subfolder: str = "H3VideoGen") -> str:
+        """Upload local video into Comfy input/; returns path usable by LoadVideo."""
+        suffix = Path(path).suffix.lower()
+        mime = {
+            ".mp4": "video/mp4",
+            ".webm": "video/webm",
+            ".mov": "video/quicktime",
+            ".mkv": "video/x-matroska",
+        }.get(suffix, "video/mp4")
+        return self._upload_input(path, subfolder=subfolder, mime=mime, kind="video")
+
+    def _upload_input(
+        self,
+        path: Path,
+        *,
+        subfolder: str,
+        mime: str,
+        kind: str,
+    ) -> str:
         path = Path(path)
         if not path.exists():
-            raise ComfyError(f"Reference image missing: {path}")
+            raise ComfyError(f"Reference {kind} missing: {path}")
 
         last_err: Exception | None = None
         for attempt in range(1, 5):
@@ -211,17 +239,15 @@ class ComfyH3Client:
             try:
                 with path.open("rb") as f:
                     files = {
-                        "image": (
-                            path.name,
-                            f,
-                            "image/png" if path.suffix.lower() == ".png" else "image/jpeg",
-                        ),
+                        "image": (path.name, f, mime),
                     }
                     data = {"overwrite": "true", "subfolder": subfolder, "type": "input"}
-                    with httpx.Client(timeout=120.0) as client:
+                    with httpx.Client(timeout=180.0) as client:
                         r = client.post(f"{self.base}/upload/image", files=files, data=data)
                         if r.status_code >= 400:
-                            raise ComfyError(f"Image upload failed {r.status_code}: {r.text[:1500]}")
+                            raise ComfyError(
+                                f"{kind.title()} upload failed {r.status_code}: {r.text[:1500]}"
+                            )
                         body = r.json()
                 name = body.get("name") or path.name
                 sub = body.get("subfolder") or subfolder
@@ -246,7 +272,7 @@ class ComfyH3Client:
                     pass
                 self.wait_until_ready(timeout_sec=120.0)
                 time.sleep(min(8, attempt * 2))
-        raise ComfyError(f"Image upload failed after retries: {last_err}")
+        raise ComfyError(f"{kind.title()} upload failed after retries: {last_err}")
 
 
     # ─── workflows ───────────────────────────────────────────────────────
@@ -340,6 +366,7 @@ class ComfyH3Client:
         width: int | None = None,
         height: int | None = None,
         first_frame_comfy_name: str | None = None,
+        last_frame_comfy_name: str | None = None,
     ) -> dict[str, Any]:
         s = self.settings
         width = width or s.default_width
@@ -362,6 +389,12 @@ class ComfyH3Client:
                 "inputs": {"image": first_frame_comfy_name},
             }
             cond_inputs["first_frame"] = ["200", 0]
+        if last_frame_comfy_name:
+            wf["201"] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": last_frame_comfy_name},
+            }
+            cond_inputs["last_frame"] = ["201", 0]
         wf["104"] = {
             "class_type": "MiniMaxH3ImageToVideo",
             "inputs": cond_inputs,
@@ -379,15 +412,17 @@ class ComfyH3Client:
         width: int | None = None,
         height: int | None = None,
         ref_image_size: str | None = None,
+        ref_video_comfy_names: Sequence[str] | None = None,
     ) -> dict[str, Any]:
-        """Reference-to-video. ref_comfy_names order → <Picture 1..N>."""
+        """Reference-to-video. Images → <Picture 1..N>; videos → <Video 1..K>."""
         s = self.settings
         width = width or s.default_width
         height = height or s.default_height
         ref_image_size = ref_image_size or s.h3_ref_image_size
         names = [n for n in ref_comfy_names if n][:9]
-        if not names:
-            raise ComfyError("R2V requires at least one reference image")
+        videos = [n for n in (ref_video_comfy_names or []) if n][:3]
+        if not names and not videos:
+            raise ComfyError("R2V requires at least one reference image or video")
 
         wf = self._loader_nodes(unet_name=s.h3_unet_r2v)
         wf["15"]["inputs"]["noise_seed"] = seed
@@ -409,8 +444,21 @@ class ComfyH3Client:
                 "class_type": "LoadImage",
                 "inputs": {"image": name},
             }
-            # Autogrow keys as used by MiniMaxH3ReferenceToVideo
             ref_inputs[f"ref_images.ref_image_{i}"] = [node_id, 0]
+
+        for i, vname in enumerate(videos):
+            load_id = str(300 + i)
+            split_id = str(310 + i)
+            wf[load_id] = {
+                "class_type": "LoadVideo",
+                "inputs": {"file": vname},
+            }
+            wf[split_id] = {
+                "class_type": "GetVideoComponents",
+                "inputs": {"video": [load_id, 0]},
+            }
+            ref_inputs[f"ref_videos.ref_video_{i}"] = [split_id, 0]
+            ref_inputs[f"ref_video_audios.ref_video_audio_{i}"] = [split_id, 1]
 
         wf["104"] = {
             "class_type": "MiniMaxH3ReferenceToVideo",
@@ -699,7 +747,9 @@ class ComfyH3Client:
         filename_prefix: str,
         mode: str = "t2v",
         ref_image_paths: Sequence[Path] | None = None,
+        ref_video_paths: Sequence[Path] | None = None,
         first_frame_path: Path | None = None,
+        last_frame_path: Path | None = None,
         project_tag: str = "refs",
     ) -> tuple[Path, str, str]:
         """
@@ -708,6 +758,7 @@ class ComfyH3Client:
         Retries the whole submit when Comfy drops the connection before the job starts.
         """
         last_err: Exception | None = None
+        skip_videos = False
         for attempt in range(1, 6):
             if self.control:
                 self.control.check()
@@ -715,10 +766,20 @@ class ComfyH3Client:
                 self.wait_until_ready(timeout_sec=120.0 if attempt > 1 else 30.0)
                 mode_l = (mode or "t2v").lower()
                 refs = [Path(p) for p in (ref_image_paths or []) if p and Path(p).exists()]
+                videos = []
+                if not skip_videos:
+                    videos = [
+                        Path(p) for p in (ref_video_paths or []) if p and Path(p).exists()
+                    ][:3]
 
-                if mode_l == "r2v" and refs:
+                if mode_l == "r2v" and (refs or videos):
                     uploaded = [
-                        self.upload_image(p, subfolder=f"H3VideoGen/{project_tag}") for p in refs[:9]
+                        self.upload_image(p, subfolder=f"H3VideoGen/{project_tag}")
+                        for p in refs[:9]
+                    ]
+                    uploaded_vids = [
+                        self.upload_video(p, subfolder=f"H3VideoGen/{project_tag}")
+                        for p in videos
                     ]
                     wf = self.build_r2v_workflow(
                         prompt,
@@ -726,13 +787,27 @@ class ComfyH3Client:
                         seed=seed,
                         filename_prefix=filename_prefix,
                         ref_comfy_names=uploaded,
+                        ref_video_comfy_names=uploaded_vids,
                     )
                     used = "r2v"
                 else:
                     first_name = None
+                    last_name = None
                     if first_frame_path and Path(first_frame_path).exists():
                         first_name = self.upload_image(
                             Path(first_frame_path), subfolder=f"H3VideoGen/{project_tag}"
+                        )
+                    last_src = Path(last_frame_path) if last_frame_path else None
+                    if (
+                        last_src
+                        and last_src.exists()
+                        and (
+                            not first_frame_path
+                            or Path(first_frame_path).resolve() != last_src.resolve()
+                        )
+                    ):
+                        last_name = self.upload_image(
+                            last_src, subfolder=f"H3VideoGen/{project_tag}"
                         )
                     wf = self.build_t2v_workflow(
                         prompt,
@@ -740,6 +815,7 @@ class ComfyH3Client:
                         seed=seed,
                         filename_prefix=filename_prefix,
                         first_frame_comfy_name=first_name,
+                        last_frame_comfy_name=last_name,
                     )
                     used = "t2v"
 
@@ -753,11 +829,28 @@ class ComfyH3Client:
                 raise
             except Exception as exc:
                 last_err = exc
+                msg = str(exc).lower()
+                video_graph_fail = (
+                    isinstance(exc, ComfyError)
+                    and not skip_videos
+                    and any(
+                        k in msg
+                        for k in (
+                            "loadvideo",
+                            "getvideocomponents",
+                            "ref_video",
+                            "class_type",
+                        )
+                    )
+                )
+                if video_graph_fail and (ref_video_paths or []):
+                    skip_videos = True
+                    continue
                 # Missing nodes / bad graph should not be retried forever
                 if isinstance(exc, ComfyError) and (
-                    "missing_node" in str(exc).lower()
-                    or "node_errors" in str(exc).lower()
-                    or "queue failed 400" in str(exc).lower()
+                    "missing_node" in msg
+                    or "node_errors" in msg
+                    or "queue failed 400" in msg
                 ) and not isinstance(exc, ComfyNeedsResubmit):
                     raise
                 needs_resubmit = isinstance(exc, ComfyNeedsResubmit)

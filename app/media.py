@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -84,12 +85,58 @@ def extract_frames(settings: Settings, video: Path, out_dir: Path, times: list[f
     return paths
 
 
+def extract_last_frame(settings: Settings, video: Path, dest: Path) -> Path:
+    """Grab the final visible frame (for I2VA / FL2VA continuity)."""
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        run(
+            [
+                settings.ffmpeg_path,
+                "-y",
+                "-sseof",
+                "-0.04",
+                "-i",
+                str(video),
+                "-frames:v",
+                "1",
+                "-q:v",
+                "2",
+                str(dest),
+            ]
+        )
+    except MediaError:
+        dest.unlink(missing_ok=True)
+    if dest.exists() and dest.stat().st_size > 1000:
+        return dest
+    # Fallback: decode from the start and keep the last decoded frame
+    run(
+        [
+            settings.ffmpeg_path,
+            "-y",
+            "-i",
+            str(video),
+            "-update",
+            "1",
+            "-q:v",
+            "2",
+            str(dest),
+        ]
+    )
+    if not dest.exists() or dest.stat().st_size < 1000:
+        raise MediaError(f"Could not extract last frame from {video}")
+    return dest
+
+
 def make_title_card(settings: Settings, path: Path, title: str, subtitle: str, seconds: float = 3.5) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Escape drawtext special chars lightly
     safe_title = title.replace(":", "\\:").replace("'", "")[:80]
     safe_sub = subtitle.replace(":", "\\:").replace("'", "")[:100]
-    font = "C\\\\:/Windows/Fonts/georgia.ttf"
+    if sys.platform == "win32":
+        font = "C\\\\:/Windows/Fonts/georgia.ttf"
+    else:
+        font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     vf = (
         f"drawtext=fontfile={font}:text='{safe_title}':"
         f"fontsize=56:fontcolor=0xf5e6c8:x=(w-text_w)/2:y=(h-text_h)/2-36,"

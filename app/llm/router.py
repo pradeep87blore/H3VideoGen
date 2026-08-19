@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from ..config import Settings
 from ..job_control import CancelledError, job_control
-from .gemini_backend import GeminiBackend, model_list
+from .gemini_backend import GeminiBackend, format_usage_line, model_list
 from .json_util import extract_json
 from .local_openai import LocalOpenAIBackend
 from .offline import critic_review_json, director_plan_json
@@ -20,6 +20,7 @@ LogFn = Callable[[str], None]
 class LLMResponse:
     data: dict[str, Any]
     provider: str
+    usage: dict[str, Any] | None = None
 
 
 class LLMRouter:
@@ -30,6 +31,7 @@ class LLMRouter:
         self.local = LocalOpenAIBackend(settings)
         self.last_provider: str = ""
         self.last_errors: list[str] = []
+        self.last_usage: dict[str, Any] | None = None
 
     def _emit(self, msg: str) -> None:
         if self.log:
@@ -90,6 +92,7 @@ class LLMRouter:
     ) -> LLMResponse:
         """Try providers in order until JSON is produced."""
         self.last_errors = []
+        self.last_usage = None
         models = model_list(
             primary_gemini_model or self.settings.gemini_director_model,
             self.settings,
@@ -113,8 +116,13 @@ class LLMRouter:
                     job_control.check()
                     data = extract_json(text)
                     self.last_provider = provider
+                    usage = dict(self.gemini.last_usage or {})
+                    self.last_usage = usage or None
                     self._emit(f"{purpose}: ok via {provider}")
-                    return LLMResponse(data=data, provider=provider)
+                    line = format_usage_line(usage)
+                    if line:
+                        self._emit(line)
+                    return LLMResponse(data=data, provider=provider, usage=usage or None)
 
                 if name in ("local_openai", "local", "ollama"):
                     if not self.settings.local_llm_enabled:
